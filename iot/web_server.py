@@ -380,6 +380,7 @@ HTML_BLYNK_DASHBOARD = """
                 <button class="modal-tab-btn" id="tab_btn_cutoffs" onclick="switchModalTab('cutoffs')">💧 Cutoffs</button>
                 <button class="modal-tab-btn" id="tab_btn_wifi" onclick="switchModalTab('wifi')">📶 Wi-Fi</button>
                 <button class="modal-tab-btn" id="tab_btn_device" onclick="switchModalTab('device')">⚙️ Device</button>
+                <button class="modal-tab-btn" id="tab_btn_info" onclick="switchModalTab('info')">ℹ️ Info</button>
             </div>
 
             <!-- Tab Content: Crops -->
@@ -434,6 +435,68 @@ HTML_BLYNK_DASHBOARD = """
                 <div style="display: flex; gap: 8px; margin-top: 10px;">
                     <button class="btn-settings" style="flex: 1;" onclick="restartGui()">🔄 Restart GUI</button>
                     <button class="btn-settings" style="flex: 1; background: #7f1d1d; border-color: #ef4444; color: #fff;" onclick="rebootPi()">⚠️ Reboot Pi</button>
+                </div>
+            </div>
+
+            <!-- Tab Content: Hardware & Connections Info -->
+            <div id="tab_info" style="display: none;">
+                <div class="setting-card">
+                    <div style="font-size: 12px; font-weight: bold; color: #38bdf8; margin-bottom: 6px;">🔌 Arduino Mega 2560 Pinout & Wiring</div>
+                    <div style="font-size: 11px; color: #94a3b8; margin-bottom: 10px;">USB Serial to Raspberry Pi: <code>/dev/ttyACM0 @ 115200 baud</code></div>
+                    <table style="width: 100%; font-size: 11px; border-collapse: collapse; text-align: left;">
+                        <tr style="border-bottom: 1px solid #334155; color: #38bdf8;">
+                            <th style="padding: 4px;">Component</th>
+                            <th style="padding: 4px;">Arduino Mega Pin</th>
+                            <th style="padding: 4px;">Power & Wiring</th>
+                        </tr>
+                        <tr style="border-bottom: 1px solid #1e293b;">
+                            <td style="padding: 5px;">🌱 Soil Moisture</td>
+                            <td style="padding: 5px; color: #10b981; font-weight: bold;">Pin A0 (Analog)</td>
+                            <td style="padding: 5px; color: #94a3b8;">VCC: 5V | GND: GND</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid #1e293b;">
+                            <td style="padding: 5px;">🌧️ Rain Sensor</td>
+                            <td style="padding: 5px; color: #10b981; font-weight: bold;">Pin A1 (Analog)</td>
+                            <td style="padding: 5px; color: #94a3b8;">VCC: 5V | GND: GND</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid #1e293b;">
+                            <td style="padding: 5px;">☀️ LDR Light</td>
+                            <td style="padding: 5px; color: #10b981; font-weight: bold;">Pin A2 (Analog)</td>
+                            <td style="padding: 5px; color: #94a3b8;">VCC: 5V | GND: GND</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid #1e293b;">
+                            <td style="padding: 5px;">💧 Water Level</td>
+                            <td style="padding: 5px; color: #10b981; font-weight: bold;">Pin A3 (Analog)</td>
+                            <td style="padding: 5px; color: #94a3b8;">VCC: 5V | GND: GND</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid #1e293b;">
+                            <td style="padding: 5px;">🌡️ DHT11 / DHT22</td>
+                            <td style="padding: 5px; color: #38bdf8; font-weight: bold;">Pin 2 (Digital)</td>
+                            <td style="padding: 5px; color: #94a3b8;">VCC: 5V | GND: GND</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid #1e293b;">
+                            <td style="padding: 5px;">⚡ Water Pump Relay</td>
+                            <td style="padding: 5px; color: #f97316; font-weight: bold;">Pin 8 (Digital)</td>
+                            <td style="padding: 5px; color: #94a3b8;">Signal IN (Active LOW)</td>
+                        </tr>
+                        <tr style="border-bottom: 1px solid #1e293b;">
+                            <td style="padding: 5px;">🔊 Deterrence Buzzer</td>
+                            <td style="padding: 5px; color: #ec4899; font-weight: bold;">Pin 9 (PWM)</td>
+                            <td style="padding: 5px; color: #94a3b8;">Pos (+) to Pin 9, Neg to GND</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 5px;">💡 Status LED</td>
+                            <td style="padding: 5px; color: #eab308; font-weight: bold;">Pin 13 (Built-in)</td>
+                            <td style="padding: 5px; color: #94a3b8;">Heartbeat indicator</td>
+                        </tr>
+                    </table>
+                </div>
+                <div class="setting-card" style="border-left: 3px solid #f59e0b; font-size: 11px;">
+                    <b style="color: #f59e0b;">⚠️ Water Pump Relay Wiring:</b><br>
+                    • <b>COM</b>: External 12V/5V Power Supply (+)<br>
+                    • <b>NO</b>: Water Pump (+)<br>
+                    • Water Pump (-) connects directly to External Power Supply (-)<br>
+                    • Connect External Power GND to Arduino GND (Common Ground).
                 </div>
             </div>
 
@@ -611,7 +674,7 @@ HTML_BLYNK_DASHBOARD = """
         }
 
         function switchModalTab(tab) {
-            ['crops', 'cutoffs', 'wifi', 'device'].forEach(t => {
+            ['crops', 'cutoffs', 'wifi', 'device', 'info'].forEach(t => {
                 document.getElementById(`tab_${t}`).style.display = (t === tab ? 'block' : 'none');
                 document.getElementById(`tab_btn_${t}`).className = `modal-tab-btn ${t === tab ? 'active' : ''}`;
             });

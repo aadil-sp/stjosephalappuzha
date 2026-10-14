@@ -25,6 +25,13 @@ try:
 except ImportError:
     PSUTIL_AVAILABLE = False
 
+try:
+    import serial
+    import serial.tools.list_ports
+    SERIAL_AVAILABLE = True
+except ImportError:
+    SERIAL_AVAILABLE = False
+
 SCRIPT_DIR = Path(__file__).resolve().parent
 SETTINGS_FILE = SCRIPT_DIR / "config" / "irrigation_settings.json"
 
@@ -114,8 +121,18 @@ class HardwareManager:
                 print(f"[Hardware] Could not initialize physical GPIO {self.pump_pin_num}: {e}. Running in simulation mode.")
                 self.relay_device = None
 
-        # Background simulation & auto-irrigation thread
+        # Background threads flag
         self.running = True
+
+        # Arduino Mega Serial Link
+        self.serial_conn = None
+        self.arduino_connected = False
+        self.serial_lock = threading.Lock()
+        if SERIAL_AVAILABLE:
+            self.serial_thread = threading.Thread(target=self._serial_loop, daemon=True)
+            self.serial_thread.start()
+
+        # Background simulation & auto-irrigation thread
         self.worker_thread = threading.Thread(target=self._loop, daemon=True)
         self.worker_thread.start()
 
@@ -170,6 +187,7 @@ class HardwareManager:
             if curr_preset and (self.soil_dry_threshold != curr_preset["dry_cutoff"] or self.soil_target_moisture != curr_preset["stop_cutoff"]):
                 self.selected_crop = "custom"
         self.save_settings()
+        self._send_serial_cmd(f"CUTOFF:{self.soil_dry_threshold}:{self.soil_target_moisture}\n")
 
     def adjust_dry_cutoff(self, delta: float) -> float:
         with self.lock:
@@ -178,6 +196,7 @@ class HardwareManager:
             self.selected_crop = "custom"
             cur = self.soil_dry_threshold
         self.save_settings()
+        self._send_serial_cmd(f"CUTOFF:{self.soil_dry_threshold}:{self.soil_target_moisture}\n")
         return cur
 
     def adjust_stop_cutoff(self, delta: float) -> float:
@@ -187,7 +206,18 @@ class HardwareManager:
             self.selected_crop = "custom"
             cur = self.soil_target_moisture
         self.save_settings()
+        self._send_serial_cmd(f"CUTOFF:{self.soil_dry_threshold}:{self.soil_target_moisture}\n")
         return cur
+
+    def _send_serial_cmd(self, cmd_str: str):
+        """Sends command to Arduino Mega via USB serial if connected."""
+        if self.serial_conn and self.arduino_connected:
+            with self.serial_lock:
+                try:
+                    self.serial_conn.write(cmd_str.encode('utf-8'))
+                    self.serial_conn.flush()
+                except Exception as e:
+                    print(f"[Serial] Error writing to Arduino: {e}")
 
     def set_pump(self, state: bool):
         with self.lock:
@@ -202,6 +232,8 @@ class HardwareManager:
                     print(f"[Hardware] Error driving relay GPIO: {e}")
             status = "ON" if self.pump_on else "OFF"
             print(f"[Hardware] Water Pump -> {status}", flush=True)
+
+        self._send_serial_cmd(f"PUMP:{status}\n")
 
     def toggle_pump(self) -> bool:
         with self.lock:
@@ -254,7 +286,8 @@ class HardwareManager:
             "disk_usage": disk_str,
             "uptime": uptime_str,
             "lcd_driver": "ADS7846 6-Point Affine",
-            "gpio_relay": "GPIO 17 (Pin 11)"
+            "gpio_relay": "GPIO 17 (Pin 11)",
+            "arduino_mega": "Connected (/dev/ttyACM0 @ 115200)" if self.arduino_connected else "Standby / Simulated"
         }
 
     def get_telemetry(self) -> Dict[str, Any]:
@@ -298,24 +331,70 @@ class HardwareManager:
             "crop_name": crop_info["name"],
             "crop_icon": crop_info["icon"],
             "crop_desc": crop_info["desc"],
+            "arduino_mega_online": self.arduino_connected,
             "timestamp": time.strftime("%H:%M:%S")
         }
 
+    def _serial_loop(self):
+        """Monitors USB serial connection with Arduino Mega 2560."""
+        target_ports = ["/dev/ttyACM0", "/dev/ttyUSB0", "COM3", "COM4"]
+        while self.running:
+            if not self.serial_conn:
+                for port in target_ports:
+                    try:
+                        s = serial.Serial(port, 115200, timeout=1.5)
+                        time.sleep(2.0)  # Allow Arduino reset on connect
+                        self.serial_conn = s
+                        self.arduino_connected = True
+                        print(f"[Hardware] Successfully connected to Arduino Mega on {port} @ 115200 baud")
+                        self._send_serial_cmd(f"CUTOFF:{self.soil_dry_threshold}:{self.soil_target_moisture}\n")
+                        break
+                    except Exception:
+                        pass
+                if not self.serial_conn:
+                    time.sleep(3.0)
+                    continue
+
+            try:
+                line = self.serial_conn.readline().decode('utf-8', errors='ignore').strip()
+                if line.startswith("{") and line.endswith("}"):
+                    data = json.loads(line)
+                    with self.lock:
+                        if "temp" in data:
+                            self.temperature_c = float(data["temp"])
+                        if "humidity" in data:
+                            self.humidity = float(data["humidity"])
+                        if "soil" in data:
+                            self.soil_moisture = float(data["soil"])
+                        if "pump" in data and self.pump_mode == "AUTO":
+                            self.pump_on = bool(data["pump"])
+            except Exception as e:
+                print(f"[Hardware] Serial read error: {e}. Reconnecting...")
+                try:
+                    self.serial_conn.close()
+                except Exception:
+                    pass
+                self.serial_conn = None
+                self.arduino_connected = False
+                time.sleep(2.0)
+
     def _loop(self):
-        """Simulates dynamic sensor physics and handles automatic irrigation."""
+        """Simulates dynamic sensor physics when Arduino is offline and handles fallback irrigation."""
         tick = 0
         while self.running:
             time.sleep(1.0)
             tick += 1
 
             with self.lock:
-                self.temperature_c = 28.0 + (1.8 * math.sin(tick * 0.05)) + random.uniform(-0.15, 0.15)
-                self.humidity = 64.0 + (4.0 * math.cos(tick * 0.04)) + random.uniform(-0.3, 0.3)
+                # If Arduino Mega is offline, run fallback physical simulation
+                if not self.arduino_connected:
+                    self.temperature_c = 28.0 + (1.8 * math.sin(tick * 0.05)) + random.uniform(-0.15, 0.15)
+                    self.humidity = 64.0 + (4.0 * math.cos(tick * 0.04)) + random.uniform(-0.3, 0.3)
 
-                if self.pump_on:
-                    self.soil_moisture = min(92.0, self.soil_moisture + random.uniform(1.2, 1.8))
-                else:
-                    self.soil_moisture = max(18.0, self.soil_moisture - random.uniform(0.1, 0.25))
+                    if self.pump_on:
+                        self.soil_moisture = min(92.0, self.soil_moisture + random.uniform(1.2, 1.8))
+                    else:
+                        self.soil_moisture = max(18.0, self.soil_moisture - random.uniform(0.1, 0.25))
 
                 if self.pump_mode == "AUTO":
                     if self.soil_moisture < self.soil_dry_threshold and not self.pump_on:
@@ -323,11 +402,13 @@ class HardwareManager:
                         self.pump_on = True
                         if self.relay_device:
                             self.relay_device.on()
+                        self._send_serial_cmd("PUMP:ON\n")
                     elif self.soil_moisture >= self.soil_target_moisture and self.pump_on:
                         print(f"[Auto-Irrigation] Soil reached target ({self.soil_moisture:.1f}% >= {self.soil_target_moisture}%). Stopping pump.")
                         self.pump_on = False
                         if self.relay_device:
                             self.relay_device.off()
+                        self._send_serial_cmd("PUMP:OFF\n")
 
 
 # Singleton hardware manager instance

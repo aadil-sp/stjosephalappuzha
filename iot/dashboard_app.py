@@ -506,12 +506,12 @@ class IoTTouchDashboard(QMainWindow):
         h_box.addWidget(btn_back)
         sett_layout.addWidget(header)
 
-        # Tab Navigation Strip (4 Tabs: Crops, Cutoffs, Wi-Fi, Device)
+        # Tab Navigation Strip (5 Tabs: Crops, Cutoffs, Wi-Fi, Device, Info)
         tabs_box = QHBoxLayout()
         tabs_box.setSpacing(4)
         self.tab_buttons = []
 
-        tab_names = ["🌾 Crops", "💧 Cutoffs", "📶 Wi-Fi", "⚙️ Device"]
+        tab_names = ["🌾 Crops", "💧 Cutoffs", "📶 Wi-Fi", "⚙️ Device", "ℹ️ Info"]
         for idx, name in enumerate(tab_names):
             btn = QPushButton(name)
             btn.setFixedHeight(24)
@@ -521,7 +521,7 @@ class IoTTouchDashboard(QMainWindow):
             tabs_box.addWidget(btn)
         sett_layout.addLayout(tabs_box)
 
-        # Settings Content Stack (StackedWidget for the 4 tabs)
+        # Settings Content Stack (StackedWidget for the 5 tabs)
         self.settings_content_stack = QStackedWidget()
         sett_layout.addWidget(self.settings_content_stack, stretch=1)
 
@@ -544,6 +544,11 @@ class IoTTouchDashboard(QMainWindow):
         self.tab_device = QWidget()
         self.init_tab_device()
         self.settings_content_stack.addWidget(self.tab_device)
+
+        # Tab 4: Hardware & Pinout Connections Info
+        self.tab_info = QWidget()
+        self.init_tab_info()
+        self.settings_content_stack.addWidget(self.tab_info)
 
     def switch_settings_tab(self, tab_idx: int):
         self.settings_content_stack.setCurrentIndex(tab_idx)
@@ -828,6 +833,95 @@ class IoTTouchDashboard(QMainWindow):
     def action_reboot_pi(self):
         print("[System] Rebooting Raspberry Pi...")
         os.system("echo 123456 | sudo -S reboot &")
+
+    # --- TAB 4: HARDWARE & ARDUINO MEGA CONNECTIONS INFO ---
+    def init_tab_info(self):
+        layout = QVBoxLayout(self.tab_info)
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(4)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea { border: 1px solid #1e293b; background: #0b1120; border-radius: 6px; }")
+
+        container = QWidget()
+        c_layout = QVBoxLayout(container)
+        c_layout.setContentsMargins(6, 6, 6, 6)
+        c_layout.setSpacing(4)
+
+        # Header card
+        lbl_head = QLabel("🔌 ARDUINO MEGA 2560 WIRING & PINOUT")
+        lbl_head.setFont(QFont("DejaVu Sans", 8, QFont.Bold))
+        lbl_head.setStyleSheet("color: #38bdf8; padding: 2px 0px;")
+        c_layout.addWidget(lbl_head)
+
+        lbl_sub = QLabel("Serial Link: Raspberry Pi 4 USB (/dev/ttyACM0 @ 115200 baud)")
+        lbl_sub.setFont(QFont("DejaVu Sans", 7))
+        lbl_sub.setStyleSheet("color: #94a3b8;")
+        c_layout.addWidget(lbl_sub)
+
+        # Pinout items
+        pinout_data = [
+            ("🌱 Soil Moisture", "Pin A0 (Analog)", "VCC: 5V | GND: GND | Output: 0-100%"),
+            ("🌧️ Rain Drop Sensor", "Pin A1 (Analog)", "VCC: 5V | GND: GND | Wet < 600"),
+            ("☀️ LDR Light Sensor", "Pin A2 (Analog)", "VCC: 5V | GND: GND | Sunlight lvl"),
+            ("💧 Water Tank Level", "Pin A3 (Analog)", "VCC: 5V | GND: GND | Depth/Float"),
+            ("🌡️ DHT11 / DHT22", "Pin 2 (Digital)", "VCC: 5V | GND: GND | 1-Wire Data"),
+            ("⚡ Water Pump Relay", "Pin 8 (Digital)", "Signal IN (Active LOW) to Relay"),
+            ("🔊 Deterrence Buzzer", "Pin 9 (PWM/Dig)", "Pos (+) to Pin 9 | Neg (-) to GND"),
+            ("💡 Heartbeat LED", "Pin 13 (Builtin)", "Blinks on pump & serial activity")
+        ]
+
+        for comp, pin, desc in pinout_data:
+            card = QFrame()
+            card.setObjectName("BlynkCard")
+            card.setStyleSheet("background-color: #131d31; border: 1px solid #1e293b; border-radius: 6px; padding: 3px;")
+            box = QHBoxLayout(card)
+            box.setContentsMargins(6, 3, 6, 3)
+
+            lbl_comp = QLabel(comp)
+            lbl_comp.setFont(QFont("DejaVu Sans", 8, QFont.Bold))
+            lbl_comp.setStyleSheet("color: #f8fafc;")
+
+            lbl_pin = QLabel(pin)
+            lbl_pin.setFont(QFont("DejaVu Sans", 8, QFont.Bold))
+            lbl_pin.setStyleSheet("color: #10b981;")
+
+            lbl_desc = QLabel(desc)
+            lbl_desc.setFont(QFont("DejaVu Sans", 7))
+            lbl_desc.setStyleSheet("color: #94a3b8;")
+
+            box.addWidget(lbl_comp, stretch=2)
+            box.addWidget(lbl_pin, stretch=2)
+            box.addWidget(lbl_desc, stretch=3)
+            c_layout.addWidget(card)
+
+        # Relay Wiring Note Card
+        note_card = QFrame()
+        note_card.setStyleSheet("background-color: #1a1625; border: 1px solid #7c3aed; border-radius: 6px; padding: 4px;")
+        n_box = QVBoxLayout(note_card)
+        n_box.setContentsMargins(6, 4, 6, 4)
+        n_box.setSpacing(2)
+
+        lbl_note_t = QLabel("⚠️ WATER PUMP RELAY SAFETY WIRING")
+        lbl_note_t.setFont(QFont("DejaVu Sans", 8, QFont.Bold))
+        lbl_note_t.setStyleSheet("color: #c084fc;")
+
+        lbl_note_b = QLabel(
+            "• COM: Connect to External 12V / 5V Pump Power (+)\n"
+            "• NO (Normally Open): Connect to Pump Positive (+)\n"
+            "• Pump Negative (-): Directly to External Power (-)\n"
+            "• Connect External Power GND to Arduino Mega GND for common ground."
+        )
+        lbl_note_b.setFont(QFont("DejaVu Sans", 7))
+        lbl_note_b.setStyleSheet("color: #e2e8f0;")
+
+        n_box.addWidget(lbl_note_t)
+        n_box.addWidget(lbl_note_b)
+        c_layout.addWidget(note_card)
+
+        scroll.setWidget(container)
+        layout.addWidget(scroll)
 
     # =========================================================================
     # USER ACTIONS

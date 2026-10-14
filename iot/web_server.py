@@ -23,6 +23,13 @@ class CropSelection(BaseModel):
     crop_key: str
 
 
+class SimulatorSettings(BaseModel):
+    enabled: bool = None
+    temperature: float = None
+    humidity: float = None
+    soil_moisture: float = None
+
+
 class WifiConnectionRequest(BaseModel):
     ssid: str
     password: str = ""
@@ -302,7 +309,7 @@ HTML_BLYNK_DASHBOARD = """
         <div class="header">
             <div class="logo-group">
                 <div class="title">🌿 BLYNK AGRI IOT</div>
-                <div class="badge-crop" id="badge_crop">🍅 Tomato</div>
+                <div class="badge-crop" id="badge_mode_indicator" onclick="openSettingsTab('sim')" style="cursor: pointer;">🎮 SIM: OFF</div>
             </div>
             <div style="display: flex; gap: 8px; align-items: center;">
                 <span id="clock" style="font-size: 12px; color: #94a3b8;">--:--:--</span>
@@ -310,9 +317,32 @@ HTML_BLYNK_DASHBOARD = """
             </div>
         </div>
 
-        <!-- Quick Crop Selector Strip -->
-        <div class="crops-strip" id="crops_strip">
-            <!-- Dynamically populated -->
+        <!-- Live Sensor Simulator Control Dock (Visible when Simulator Mode is Active) -->
+        <div id="sim_dock" style="display: none; background: #0c2340; border: 1.5px solid #0284c7; margin-bottom: 14px; padding: 12px; border-radius: 12px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <span style="font-size: 11px; font-weight: bold; color: #38bdf8;">🎮 LIVE SENSOR SIMULATOR (Outputs react in real time)</span>
+                <button class="btn-settings" style="font-size: 10px; padding: 2px 8px; background: #7f1d1d; border-color: #ef4444; color: #fff;" onclick="toggleSimulatorMode()">Turn Off</button>
+            </div>
+            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px;">
+                <div>
+                    <div style="display: flex; justify-content: space-between; font-size: 11px; color: #f97316; margin-bottom: 4px;">
+                        <span>🌡️ Temp</span><b id="dock_temp_val">28.0 °C</b>
+                    </div>
+                    <input type="range" id="dock_temp" min="0" max="50" step="0.5" value="28" style="width: 100%; accent-color: #f97316;" oninput="onDockSliderInput()">
+                </div>
+                <div>
+                    <div style="display: flex; justify-content: space-between; font-size: 11px; color: #38bdf8; margin-bottom: 4px;">
+                        <span>💧 Humidity</span><b id="dock_hum_val">64 %</b>
+                    </div>
+                    <input type="range" id="dock_hum" min="0" max="100" step="1" value="64" style="width: 100%; accent-color: #38bdf8;" oninput="onDockSliderInput()">
+                </div>
+                <div>
+                    <div style="display: flex; justify-content: space-between; font-size: 11px; color: #10b981; margin-bottom: 4px;">
+                        <span>🌱 Soil</span><b id="dock_soil_val">42 %</b>
+                    </div>
+                    <input type="range" id="dock_soil" min="0" max="100" step="1" value="42" style="width: 100%; accent-color: #10b981;" oninput="onDockSliderInput()">
+                </div>
+            </div>
         </div>
 
         <!-- 3 Blynk Telemetry Cards -->
@@ -348,7 +378,7 @@ HTML_BLYNK_DASHBOARD = """
                     Cutoff: Start < 35% | Stop >= 65%
                 </div>
                 <div style="display: flex; gap: 6px;">
-                    <button class="btn-settings" style="font-size: 11px; padding: 4px 8px;" onclick="openSettingsTab('crops')">🌾 Crops</button>
+                    <button class="btn-settings" style="font-size: 11px; padding: 4px 8px;" onclick="openSettingsTab('sim')">🎮 Simulator</button>
                     <button class="btn-settings" style="font-size: 11px; padding: 4px 8px;" onclick="openSettingsTab('cutoffs')">💧 Cutoffs</button>
                     <button class="btn-settings" style="font-size: 11px; padding: 4px 8px;" onclick="openSettingsTab('wifi')">📶 Wi-Fi</button>
                 </div>
@@ -376,16 +406,40 @@ HTML_BLYNK_DASHBOARD = """
 
             <!-- Tab Headers -->
             <div class="modal-tabs">
-                <button class="modal-tab-btn active" id="tab_btn_crops" onclick="switchModalTab('crops')">🌾 Crops</button>
+                <button class="modal-tab-btn active" id="tab_btn_sim" onclick="switchModalTab('sim')">🎮 Simulator</button>
                 <button class="modal-tab-btn" id="tab_btn_cutoffs" onclick="switchModalTab('cutoffs')">💧 Cutoffs</button>
                 <button class="modal-tab-btn" id="tab_btn_wifi" onclick="switchModalTab('wifi')">📶 Wi-Fi</button>
                 <button class="modal-tab-btn" id="tab_btn_device" onclick="switchModalTab('device')">⚙️ Device</button>
                 <button class="modal-tab-btn" id="tab_btn_info" onclick="switchModalTab('info')">ℹ️ Info</button>
             </div>
 
-            <!-- Tab Content: Crops -->
-            <div id="tab_crops">
-                <div id="modal_crops_list" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;"></div>
+            <!-- Tab Content: Sensor Simulator -->
+            <div id="tab_sim">
+                <div class="setting-card" style="text-align: center;">
+                    <div style="font-size: 12px; color: #cbd5e1; margin-bottom: 8px;">Manually control sensor values with sliders. System automation and motor outputs react in real time.</div>
+                    <button class="btn-motor off" id="modal_sim_toggle" style="height: 40px; font-size: 12px; font-weight: bold;" onclick="toggleSimulatorMode()">🎮 SIMULATOR MODE: OFF</button>
+                </div>
+                <div class="setting-card">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+                        <span style="font-size: 11px; font-weight: bold; color: #f97316;">🌡️ Simulated Temperature</span>
+                        <span id="modal_sim_t_val" style="font-size: 12px; font-weight: bold; color: #ffffff;">28.0 °C</span>
+                    </div>
+                    <input type="range" id="modal_sim_t" min="0" max="50" step="0.5" value="28" style="width: 100%; accent-color: #f97316;" oninput="onModalSliderInput()">
+                </div>
+                <div class="setting-card">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+                        <span style="font-size: 11px; font-weight: bold; color: #38bdf8;">💧 Simulated Humidity</span>
+                        <span id="modal_sim_h_val" style="font-size: 12px; font-weight: bold; color: #ffffff;">64 %</span>
+                    </div>
+                    <input type="range" id="modal_sim_h" min="0" max="100" step="1" value="64" style="width: 100%; accent-color: #38bdf8;" oninput="onModalSliderInput()">
+                </div>
+                <div class="setting-card">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 6px;">
+                        <span style="font-size: 11px; font-weight: bold; color: #10b981;">🌱 Simulated Soil Moisture (Auto Motor Trigger)</span>
+                        <span id="modal_sim_s_val" style="font-size: 12px; font-weight: bold; color: #ffffff;">42 %</span>
+                    </div>
+                    <input type="range" id="modal_sim_s" min="0" max="100" step="1" value="42" style="width: 100%; accent-color: #10b981;" oninput="onModalSliderInput()">
+                </div>
             </div>
 
             <!-- Tab Content: Cutoffs -->
@@ -502,7 +556,7 @@ HTML_BLYNK_DASHBOARD = """
     <script>
         let currentDry = 35;
         let currentStop = 65;
-        let selectedCropKey = 'tomato';
+        let isUserAdjustingSlider = false;
         let targetSsid = '';
 
         async function fetchTelemetry() {
@@ -510,22 +564,70 @@ HTML_BLYNK_DASHBOARD = """
                 const res = await fetch('/api/telemetry');
                 const data = await res.json();
                 document.getElementById('clock').innerText = data.timestamp;
-                document.getElementById('badge_crop').innerText = `${data.crop_icon} ${data.crop_name}`;
+
+                // Indicator Badge & Live Simulator Dock
+                const badge = document.getElementById('badge_mode_indicator');
+                const simDock = document.getElementById('sim_dock');
+                const modalToggle = document.getElementById('modal_sim_toggle');
+
+                if (data.simulator_mode) {
+                    badge.innerText = '🎮 SIMULATOR: ON';
+                    badge.style.color = '#38bdf8';
+                    badge.style.borderColor = '#0284c7';
+                    badge.style.background = 'rgba(2, 132, 199, 0.25)';
+                    simDock.style.display = 'block';
+
+                    modalToggle.className = 'btn-motor on';
+                    modalToggle.innerText = '🎮 SIMULATOR MODE: ON';
+                } else {
+                    badge.innerText = `💧 Cutoff: ${data.dry_cutoff}% - ${data.stop_cutoff}%`;
+                    badge.style.color = '#10b981';
+                    badge.style.borderColor = '#10b981';
+                    badge.style.background = 'rgba(16, 185, 129, 0.2)';
+                    simDock.style.display = 'none';
+
+                    modalToggle.className = 'btn-motor off';
+                    modalToggle.innerText = '🎮 SIMULATOR MODE: OFF';
+                }
+
+                // Temperature
                 document.getElementById('temp_c').innerText = data.temperature_c;
                 document.getElementById('temp_sub').innerText = '°C  |  ' + data.temperature_f + ' °F';
                 document.getElementById('temp_bar').style.width = Math.min(100, data.temperature_c * 2) + '%';
 
+                // Humidity
                 document.getElementById('hum').innerText = data.humidity;
                 document.getElementById('hum_bar').style.width = data.humidity + '%';
 
+                // Soil Moisture
                 document.getElementById('soil').innerText = data.soil_moisture;
                 document.getElementById('soil_bar').style.width = data.soil_moisture + '%';
                 document.getElementById('soil_badge').innerText = data.soil_condition;
                 document.getElementById('soil_badge').style.color = data.soil_color;
 
+                // Sync Sliders if user is not actively dragging
+                if (!isUserAdjustingSlider) {
+                    const simT = data.sim_temp !== undefined ? data.sim_temp : data.temperature_c;
+                    const simH = data.sim_humidity !== undefined ? data.sim_humidity : data.humidity;
+                    const simS = data.sim_soil_moisture !== undefined ? data.sim_soil_moisture : data.soil_moisture;
+
+                    document.getElementById('dock_temp').value = simT;
+                    document.getElementById('dock_temp_val').innerText = `${parseFloat(simT).toFixed(1)} °C`;
+                    document.getElementById('dock_hum').value = simH;
+                    document.getElementById('dock_hum_val').innerText = `${parseInt(simH)} %`;
+                    document.getElementById('dock_soil').value = simS;
+                    document.getElementById('dock_soil_val').innerText = `${parseInt(simS)} %`;
+
+                    document.getElementById('modal_sim_t').value = simT;
+                    document.getElementById('modal_sim_t_val').innerText = `${parseFloat(simT).toFixed(1)} °C`;
+                    document.getElementById('modal_sim_h').value = simH;
+                    document.getElementById('modal_sim_h_val').innerText = `${parseInt(simH)} %`;
+                    document.getElementById('modal_sim_s').value = simS;
+                    document.getElementById('modal_sim_s_val').innerText = `${parseInt(simS)} %`;
+                }
+
                 currentDry = data.dry_cutoff;
                 currentStop = data.stop_cutoff;
-                selectedCropKey = data.selected_crop;
 
                 document.getElementById('cutoff_display').innerText = `Cutoff: Start < ${currentDry}% | Stop >= ${currentStop}%`;
                 document.getElementById('modal_dry_val').innerText = currentDry + ' %';
@@ -541,10 +643,70 @@ HTML_BLYNK_DASHBOARD = """
                 }
 
                 document.getElementById('btn_mode').innerText = 'MODE: ' + data.pump_mode;
-                updateCropsUI();
             } catch (e) {
                 console.error("Telemetry error:", e);
             }
+        }
+
+        async function toggleSimulatorMode() {
+            await fetch('/api/simulator/toggle', { method: 'POST' });
+            fetchTelemetry();
+        }
+
+        let simUpdateTimer = null;
+        function sendSimUpdate(temp, hum, soil) {
+            isUserAdjustingSlider = true;
+            clearTimeout(simUpdateTimer);
+            simUpdateTimer = setTimeout(async () => {
+                await fetch('/api/simulator/set', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        enabled: true,
+                        temperature: parseFloat(temp),
+                        humidity: parseFloat(hum),
+                        soil_moisture: parseFloat(soil)
+                    })
+                });
+                isUserAdjustingSlider = false;
+                fetchTelemetry();
+            }, 60);
+        }
+
+        function onDockSliderInput() {
+            const t = document.getElementById('dock_temp').value;
+            const h = document.getElementById('dock_hum').value;
+            const s = document.getElementById('dock_soil').value;
+            document.getElementById('dock_temp_val').innerText = `${parseFloat(t).toFixed(1)} °C`;
+            document.getElementById('dock_hum_val').innerText = `${parseInt(h)} %`;
+            document.getElementById('dock_soil_val').innerText = `${parseInt(s)} %`;
+
+            document.getElementById('modal_sim_t').value = t;
+            document.getElementById('modal_sim_t_val').innerText = `${parseFloat(t).toFixed(1)} °C`;
+            document.getElementById('modal_sim_h').value = h;
+            document.getElementById('modal_sim_h_val').innerText = `${parseInt(h)} %`;
+            document.getElementById('modal_sim_s').value = s;
+            document.getElementById('modal_sim_s_val').innerText = `${parseInt(s)} %`;
+
+            sendSimUpdate(t, h, s);
+        }
+
+        function onModalSliderInput() {
+            const t = document.getElementById('modal_sim_t').value;
+            const h = document.getElementById('modal_sim_h').value;
+            const s = document.getElementById('modal_sim_s').value;
+            document.getElementById('modal_sim_t_val').innerText = `${parseFloat(t).toFixed(1)} °C`;
+            document.getElementById('modal_sim_h_val').innerText = `${parseInt(h)} %`;
+            document.getElementById('modal_sim_s_val').innerText = `${parseInt(s)} %`;
+
+            document.getElementById('dock_temp').value = t;
+            document.getElementById('dock_temp_val').innerText = `${parseFloat(t).toFixed(1)} °C`;
+            document.getElementById('dock_hum').value = h;
+            document.getElementById('dock_hum_val').innerText = `${parseInt(h)} %`;
+            document.getElementById('dock_soil').value = s;
+            document.getElementById('dock_soil_val').innerText = `${parseInt(s)} %`;
+
+            sendSimUpdate(t, h, s);
         }
 
         async function toggleMotor() {
@@ -569,44 +731,6 @@ HTML_BLYNK_DASHBOARD = """
                 body: JSON.stringify({ dry_cutoff: currentDry, stop_cutoff: currentStop })
             });
             fetchTelemetry();
-        }
-
-        async function selectCrop(key) {
-            await fetch('/api/crops/select', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ crop_key: key })
-            });
-            fetchTelemetry();
-        }
-
-        async function updateCropsUI() {
-            const cropsRes = await fetch('/api/crops');
-            const crops = await cropsRes.json();
-            const strip = document.getElementById('crops_strip');
-            const modalList = document.getElementById('modal_crops_list');
-
-            strip.innerHTML = '';
-            modalList.innerHTML = '';
-
-            for (const [key, c] of Object.entries(crops)) {
-                const isActive = (key === selectedCropKey);
-                // Strip button
-                const btn = document.createElement('button');
-                btn.className = `crop-btn ${isActive ? 'active' : ''}`;
-                btn.innerText = `${c.icon} ${c.name}`;
-                btn.onclick = () => selectCrop(key);
-                strip.appendChild(btn);
-
-                // Modal card
-                const mBtn = document.createElement('button');
-                mBtn.className = `crop-btn ${isActive ? 'active' : ''}`;
-                mBtn.style.padding = '10px';
-                mBtn.style.textAlign = 'left';
-                mBtn.innerHTML = `<div>${c.icon} <b>${c.name}</b></div><div style="font-size: 10px; color: #94a3b8;">${c.dry_cutoff}% - ${c.stop_cutoff}%</div>`;
-                mBtn.onclick = () => selectCrop(key);
-                modalList.appendChild(mBtn);
-            }
         }
 
         async function scanWifi() {
@@ -669,9 +793,11 @@ HTML_BLYNK_DASHBOARD = """
         }
 
         function switchModalTab(tab) {
-            ['crops', 'cutoffs', 'wifi', 'device', 'info'].forEach(t => {
-                document.getElementById(`tab_${t}`).style.display = (t === tab ? 'block' : 'none');
-                document.getElementById(`tab_btn_${t}`).className = `modal-tab-btn ${t === tab ? 'active' : ''}`;
+            ['sim', 'cutoffs', 'wifi', 'device', 'info'].forEach(t => {
+                const el = document.getElementById(`tab_${t}`);
+                const btn = document.getElementById(`tab_btn_${t}`);
+                if (el) el.style.display = (t === tab ? 'block' : 'none');
+                if (btn) btn.className = `modal-tab-btn ${t === tab ? 'active' : ''}`;
             });
             if (tab === 'wifi') scanWifi();
             if (tab === 'device') loadDiagnostics();
@@ -684,7 +810,7 @@ HTML_BLYNK_DASHBOARD = """
 
         function openSettings() {
             document.getElementById('settings_modal').style.display = 'flex';
-            switchModalTab('crops');
+            switchModalTab('sim');
         }
 
         function closeSettings() {
@@ -707,6 +833,30 @@ def index():
 @web_app.get("/api/telemetry")
 def get_telemetry():
     return JSONResponse(hardware.get_telemetry())
+
+
+@web_app.post("/api/simulator/toggle")
+def toggle_simulator():
+    new_state = hardware.toggle_simulator_mode()
+    return JSONResponse({"simulator_mode": new_state})
+
+
+@web_app.post("/api/simulator/set")
+def set_simulator_sensors(req: SimulatorSettings):
+    if req.enabled is not None:
+        hardware.set_simulator_mode(req.enabled)
+    hardware.set_simulated_sensors(
+        temp=req.temperature,
+        humidity=req.humidity,
+        soil_moisture=req.soil_moisture
+    )
+    return JSONResponse({
+        "status": "success",
+        "simulator_mode": hardware.simulator_mode,
+        "temperature": hardware.sim_temp,
+        "humidity": hardware.sim_humidity,
+        "soil_moisture": hardware.sim_soil_moisture
+    })
 
 
 @web_app.post("/api/pump/toggle")

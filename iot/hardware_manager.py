@@ -105,6 +105,12 @@ class HardwareManager:
         self.pump_on = False
         self.pump_mode = "AUTO"  # "AUTO" or "MANUAL"
 
+        # Simulator Mode variables (controlled via UI sliders)
+        self.simulator_mode = False
+        self.sim_temp = 28.0
+        self.sim_humidity = 64.0
+        self.sim_soil_moisture = 42.0
+
         # Crop selection & Cutoff Percentages
         self.selected_crop = "tomato"
         self.soil_dry_threshold = 35.0
@@ -137,7 +143,7 @@ class HardwareManager:
         self.worker_thread.start()
 
     def load_settings(self):
-        """Loads saved cutoff percentages and crop profile from JSON config."""
+        """Loads saved cutoff percentages, crop profile, and simulator state from JSON config."""
         if SETTINGS_FILE.exists():
             try:
                 with open(SETTINGS_FILE, "r") as f:
@@ -146,12 +152,20 @@ class HardwareManager:
                     self.soil_dry_threshold = float(data.get("dry_cutoff", 35.0))
                     self.soil_target_moisture = float(data.get("stop_cutoff", 65.0))
                     self.pump_mode = data.get("pump_mode", "AUTO")
-                    print(f"[Hardware] Loaded settings: Crop={self.selected_crop}, Dry Cutoff={self.soil_dry_threshold}%, Stop Cutoff={self.soil_target_moisture}%")
+                    self.simulator_mode = bool(data.get("simulator_mode", False))
+                    self.sim_temp = float(data.get("sim_temp", 28.0))
+                    self.sim_humidity = float(data.get("sim_humidity", 64.0))
+                    self.sim_soil_moisture = float(data.get("sim_soil_moisture", 42.0))
+                    if self.simulator_mode:
+                        self.temperature_c = self.sim_temp
+                        self.humidity = self.sim_humidity
+                        self.soil_moisture = self.sim_soil_moisture
+                    print(f"[Hardware] Loaded settings: Simulator={self.simulator_mode}, Crop={self.selected_crop}, Dry Cutoff={self.soil_dry_threshold}%, Stop Cutoff={self.soil_target_moisture}%")
             except Exception as e:
                 print(f"[Hardware] Error loading settings file: {e}")
 
     def save_settings(self):
-        """Persists cutoff percentages and crop to JSON config."""
+        """Persists cutoff percentages, crop, and simulator state to JSON config."""
         try:
             SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
             with open(SETTINGS_FILE, "w") as f:
@@ -159,10 +173,15 @@ class HardwareManager:
                     "selected_crop": self.selected_crop,
                     "dry_cutoff": self.soil_dry_threshold,
                     "stop_cutoff": self.soil_target_moisture,
-                    "pump_mode": self.pump_mode
+                    "pump_mode": self.pump_mode,
+                    "simulator_mode": self.simulator_mode,
+                    "sim_temp": self.sim_temp,
+                    "sim_humidity": self.sim_humidity,
+                    "sim_soil_moisture": self.sim_soil_moisture
                 }, f, indent=2)
             print(f"[Hardware] Saved settings to {SETTINGS_FILE}")
         except Exception as e:
+            print(f"[Hardware] Error saving settings: {e}")
             print(f"[Hardware] Error saving settings: {e}")
 
     def set_crop(self, crop_key: str):
@@ -207,7 +226,66 @@ class HardwareManager:
             cur = self.soil_target_moisture
         self.save_settings()
         self._send_serial_cmd(f"CUTOFF:{self.soil_dry_threshold}:{self.soil_target_moisture}\n")
+        self._check_auto_irrigation()
         return cur
+
+    def set_simulator_mode(self, enabled: bool) -> bool:
+        """Toggles manual simulator mode. When enabled, slider values override physical/drift inputs."""
+        with self.lock:
+            self.simulator_mode = bool(enabled)
+            if self.simulator_mode:
+                self.temperature_c = self.sim_temp
+                self.humidity = self.sim_humidity
+                self.soil_moisture = self.sim_soil_moisture
+        self.save_settings()
+        self._check_auto_irrigation()
+        print(f"[Hardware] Simulator Mode -> {'ENABLED' if self.simulator_mode else 'DISABLED'}")
+        return self.simulator_mode
+
+    def toggle_simulator_mode(self) -> bool:
+        return self.set_simulator_mode(not self.simulator_mode)
+
+    def set_simulated_sensors(self, temp: float = None, humidity: float = None, soil_moisture: float = None):
+        """Sets slider values for simulation. When simulator_mode is active, outputs update immediately."""
+        with self.lock:
+            if temp is not None:
+                self.sim_temp = round(float(temp), 1)
+                if self.simulator_mode:
+                    self.temperature_c = self.sim_temp
+            if humidity is not None:
+                self.sim_humidity = round(float(humidity), 1)
+                if self.simulator_mode:
+                    self.humidity = self.sim_humidity
+            if soil_moisture is not None:
+                self.sim_soil_moisture = round(float(soil_moisture), 1)
+                if self.simulator_mode:
+                    self.soil_moisture = self.sim_soil_moisture
+
+        self.save_settings()
+        self._check_auto_irrigation()
+
+    def _check_auto_irrigation(self):
+        """Triggers real-time auto-irrigation evaluation when thresholds or moisture change."""
+        with self.lock:
+            if self.pump_mode == "AUTO":
+                if self.soil_moisture < self.soil_dry_threshold and not self.pump_on:
+                    print(f"[Auto-Irrigation] Soil ({self.soil_moisture:.1f}% < {self.soil_dry_threshold}%). Starting pump!")
+                    self.pump_on = True
+                    if self.relay_device:
+                        try:
+                            self.relay_device.on()
+                        except Exception as e:
+                            print(f"[Hardware] Relay on error: {e}")
+                    self._send_serial_cmd("PUMP:ON\n")
+                elif self.soil_moisture >= self.soil_target_moisture and self.pump_on:
+                    print(f"[Auto-Irrigation] Soil reached target ({self.soil_moisture:.1f}% >= {self.soil_target_moisture}%). Stopping pump.")
+                    self.pump_on = False
+                    if self.relay_device:
+                        try:
+                            self.relay_device.off()
+                        except Exception as e:
+                            print(f"[Hardware] Relay off error: {e}")
+                    self._send_serial_cmd("PUMP:OFF\n")
 
     def _send_serial_cmd(self, cmd_str: str):
         """Sends command to Arduino Mega via USB serial if connected."""
@@ -332,6 +410,10 @@ class HardwareManager:
             "crop_icon": crop_info["icon"],
             "crop_desc": crop_info["desc"],
             "arduino_mega_online": self.arduino_connected,
+            "simulator_mode": self.simulator_mode,
+            "sim_temp": self.sim_temp,
+            "sim_humidity": self.sim_humidity,
+            "sim_soil_moisture": self.sim_soil_moisture,
             "timestamp": time.strftime("%H:%M:%S")
         }
 
@@ -360,12 +442,14 @@ class HardwareManager:
                 if line.startswith("{") and line.endswith("}"):
                     data = json.loads(line)
                     with self.lock:
-                        if "temp" in data:
-                            self.temperature_c = float(data["temp"])
-                        if "humidity" in data:
-                            self.humidity = float(data["humidity"])
-                        if "soil" in data:
-                            self.soil_moisture = float(data["soil"])
+                        # Only accept sensor input from hardware if simulator mode is disabled
+                        if not self.simulator_mode:
+                            if "temp" in data:
+                                self.temperature_c = float(data["temp"])
+                            if "humidity" in data:
+                                self.humidity = float(data["humidity"])
+                            if "soil" in data:
+                                self.soil_moisture = float(data["soil"])
                         if "pump" in data and self.pump_mode == "AUTO":
                             self.pump_on = bool(data["pump"])
             except Exception as e:
@@ -379,15 +463,15 @@ class HardwareManager:
                 time.sleep(2.0)
 
     def _loop(self):
-        """Simulates dynamic sensor physics when Arduino is offline and handles fallback irrigation."""
+        """Simulates dynamic sensor physics when Arduino is offline and handles auto-irrigation."""
         tick = 0
         while self.running:
             time.sleep(1.0)
             tick += 1
 
             with self.lock:
-                # If Arduino Mega is offline, run fallback physical simulation
-                if not self.arduino_connected:
+                # If simulator mode is OFF, run fallback physical simulation when Arduino is offline
+                if not self.simulator_mode and not self.arduino_connected:
                     self.temperature_c = 28.0 + (1.8 * math.sin(tick * 0.05)) + random.uniform(-0.15, 0.15)
                     self.humidity = 64.0 + (4.0 * math.cos(tick * 0.04)) + random.uniform(-0.3, 0.3)
 
@@ -396,19 +480,7 @@ class HardwareManager:
                     else:
                         self.soil_moisture = max(18.0, self.soil_moisture - random.uniform(0.1, 0.25))
 
-                if self.pump_mode == "AUTO":
-                    if self.soil_moisture < self.soil_dry_threshold and not self.pump_on:
-                        print(f"[Auto-Irrigation] Soil ({self.soil_moisture:.1f}% < {self.soil_dry_threshold}%). Starting pump!")
-                        self.pump_on = True
-                        if self.relay_device:
-                            self.relay_device.on()
-                        self._send_serial_cmd("PUMP:ON\n")
-                    elif self.soil_moisture >= self.soil_target_moisture and self.pump_on:
-                        print(f"[Auto-Irrigation] Soil reached target ({self.soil_moisture:.1f}% >= {self.soil_target_moisture}%). Stopping pump.")
-                        self.pump_on = False
-                        if self.relay_device:
-                            self.relay_device.off()
-                        self._send_serial_cmd("PUMP:OFF\n")
+            self._check_auto_irrigation()
 
 
 # Singleton hardware manager instance

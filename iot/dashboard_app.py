@@ -24,7 +24,7 @@ sys.path.insert(0, str(SCRIPT_DIR))
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QStackedWidget, QVBoxLayout,
     QHBoxLayout, QLabel, QPushButton, QProgressBar, QFrame, QGridLayout,
-    QScrollArea, QMessageBox
+    QScrollArea, QMessageBox, QSlider
 )
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QFont, QColor
@@ -39,6 +39,28 @@ QMainWindow, QWidget#MainRoot {
     background-color: #0b1120;
     color: #f8fafc;
     font-family: "DejaVu Sans", "Noto Sans", -apple-system, sans-serif;
+}
+
+QSlider::groove:horizontal {
+    border: 1px solid #1e293b;
+    height: 8px;
+    background: #0b1120;
+    border-radius: 4px;
+}
+QSlider::sub-page:horizontal {
+    background: #0284c7;
+    border-radius: 4px;
+}
+QSlider::handle:horizontal {
+    background: #38bdf8;
+    border: 2px solid #ffffff;
+    width: 22px;
+    margin-top: -7px;
+    margin-bottom: -7px;
+    border-radius: 11px;
+}
+QSlider::handle:horizontal:pressed {
+    background: #10b981;
 }
 
 QFrame {
@@ -424,10 +446,10 @@ class IoTTouchDashboard(QMainWindow):
 
         quick_links = QHBoxLayout()
         quick_links.setSpacing(4)
-        btn_quick_crops = QPushButton("🌾 Set Crop")
-        btn_quick_crops.setFixedHeight(20)
-        btn_quick_crops.setStyleSheet("background: #0f172a; border: 1px solid #334155; font-size: 9px; color: #38bdf8;")
-        btn_quick_crops.clicked.connect(lambda: self.open_settings(0))
+        self.btn_quick_sim = QPushButton("🎮 Simulator")
+        self.btn_quick_sim.setFixedHeight(20)
+        self.btn_quick_sim.setStyleSheet("background: #0f172a; border: 1px solid #334155; font-size: 9px; color: #38bdf8;")
+        self.btn_quick_sim.clicked.connect(lambda: self.open_settings(0))
 
         btn_quick_cutoffs = QPushButton("💧 Cutoff %")
         btn_quick_cutoffs.setFixedHeight(20)
@@ -439,7 +461,7 @@ class IoTTouchDashboard(QMainWindow):
         btn_quick_wifi.setStyleSheet("background: #0f172a; border: 1px solid #334155; font-size: 9px; color: #fbbf24;")
         btn_quick_wifi.clicked.connect(lambda: self.open_settings(2))
 
-        quick_links.addWidget(btn_quick_crops)
+        quick_links.addWidget(self.btn_quick_sim)
         quick_links.addWidget(btn_quick_cutoffs)
         quick_links.addWidget(btn_quick_wifi)
         info_box.addWidget(self.lbl_cutoff_summary)
@@ -506,12 +528,12 @@ class IoTTouchDashboard(QMainWindow):
         h_box.addWidget(btn_back)
         sett_layout.addWidget(header)
 
-        # Tab Navigation Strip (5 Tabs: Crops, Cutoffs, Wi-Fi, Device, Info)
+        # Tab Navigation Strip (5 Tabs: Simulator, Cutoffs, Wi-Fi, Device, Info)
         tabs_box = QHBoxLayout()
         tabs_box.setSpacing(4)
         self.tab_buttons = []
 
-        tab_names = ["🌾 Crops", "💧 Cutoffs", "📶 Wi-Fi", "⚙️ Device", "ℹ️ Info"]
+        tab_names = ["🎮 Simulator", "💧 Cutoffs", "📶 Wi-Fi", "⚙️ Device", "ℹ️ Info"]
         for idx, name in enumerate(tab_names):
             btn = QPushButton(name)
             btn.setFixedHeight(24)
@@ -525,10 +547,10 @@ class IoTTouchDashboard(QMainWindow):
         self.settings_content_stack = QStackedWidget()
         sett_layout.addWidget(self.settings_content_stack, stretch=1)
 
-        # Tab 0: Crop Selection
-        self.tab_crops = QWidget()
-        self.init_tab_crops()
-        self.settings_content_stack.addWidget(self.tab_crops)
+        # Tab 0: Sensor Simulator Mode
+        self.tab_simulator = QWidget()
+        self.init_tab_simulator()
+        self.settings_content_stack.addWidget(self.tab_simulator)
 
         # Tab 1: Cutoff Percentages
         self.tab_cutoffs = QWidget()
@@ -557,7 +579,9 @@ class IoTTouchDashboard(QMainWindow):
             btn.style().unpolish(btn)
             btn.style().polish(btn)
 
-        if tab_idx == 2:  # Wi-Fi Tab
+        if tab_idx == 0:  # Simulator Tab
+            self.refresh_simulator_ui()
+        elif tab_idx == 2:  # Wi-Fi Tab
             self.refresh_wifi_ui()
         elif tab_idx == 3:  # Device Tab
             self.refresh_device_ui()
@@ -566,44 +590,172 @@ class IoTTouchDashboard(QMainWindow):
         self.switch_settings_tab(tab_idx)
         self.stack.setCurrentIndex(1)
 
-    # --- TAB 0: CROPS ---
-    def init_tab_crops(self):
-        layout = QVBoxLayout(self.tab_crops)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.setSpacing(4)
+    # --- TAB 0: SENSOR SIMULATOR ---
+    def init_tab_simulator(self):
+        layout = QVBoxLayout(self.tab_simulator)
+        layout.setContentsMargins(4, 3, 4, 3)
+        layout.setSpacing(3)
 
-        lbl = QLabel("Select Crop Profile (Auto-sets moisture cutoffs):")
-        lbl.setFont(QFont("DejaVu Sans", 8, QFont.Bold))
-        lbl.setStyleSheet("color: #38bdf8;")
-        layout.addWidget(lbl)
+        # 1. Top Toggle Header Card
+        top_card = QFrame()
+        top_card.setObjectName("BlynkCard")
+        top_box = QHBoxLayout(top_card)
+        top_box.setContentsMargins(8, 4, 8, 4)
 
-        grid = QGridLayout()
-        grid.setSpacing(5)
+        lbl_sim_info = QLabel("🎮 SENSOR SIMULATOR MODE\nOutputs & motor auto-react to slider values")
+        lbl_sim_info.setFont(QFont("DejaVu Sans", 7))
+        lbl_sim_info.setStyleSheet("color: #94a3b8;")
 
-        self.crop_buttons = {}
-        crops_list = list(CROP_PRESETS.items())
+        self.btn_sim_toggle = QPushButton("SIMULATOR: OFF")
+        self.btn_sim_toggle.setFixedHeight(28)
+        self.btn_sim_toggle.setFixedWidth(135)
+        self.btn_sim_toggle.clicked.connect(self.action_toggle_simulator)
 
-        for idx, (key, info) in enumerate(crops_list):
-            row = idx // 2
-            col = idx % 2
-            text = f"{info['icon']} {info['name']}\nCutoffs: {int(info['dry_cutoff'])}% - {int(info['stop_cutoff'])}%"
-            btn = QPushButton(text)
-            btn.setFixedHeight(44)
-            btn.setObjectName("BtnCropActive" if key == hardware.selected_crop else "BtnCropInactive")
-            btn.clicked.connect(lambda _, k=key: self.select_crop(k))
-            self.crop_buttons[key] = btn
-            grid.addWidget(btn, row, col)
+        top_box.addWidget(lbl_sim_info, stretch=1)
+        top_box.addWidget(self.btn_sim_toggle)
+        layout.addWidget(top_card)
 
-        layout.addLayout(grid)
+        # 2. Sliders Container Card
+        sliders_card = QFrame()
+        sliders_card.setObjectName("BlynkCard")
+        s_box = QVBoxLayout(sliders_card)
+        s_box.setContentsMargins(8, 4, 8, 4)
+        s_box.setSpacing(2)
+
+        # 1. Temperature Slider (0 - 50 °C)
+        row_t_header = QHBoxLayout()
+        lbl_t = QLabel("🌡️ Temperature")
+        lbl_t.setFont(QFont("DejaVu Sans", 8, QFont.Bold))
+        lbl_t.setStyleSheet("color: #f97316;")
+        self.lbl_sim_t_val = QLabel("28.0 °C")
+        self.lbl_sim_t_val.setFont(QFont("DejaVu Sans", 8, QFont.Bold))
+        self.lbl_sim_t_val.setStyleSheet("color: #ffffff;")
+        row_t_header.addWidget(lbl_t)
+        row_t_header.addStretch()
+        row_t_header.addWidget(self.lbl_sim_t_val)
+        s_box.addLayout(row_t_header)
+
+        row_t_ctrl = QHBoxLayout()
+        btn_t_minus = QPushButton("-1")
+        btn_t_minus.setFixedSize(28, 22)
+        btn_t_minus.clicked.connect(lambda: self.step_sim_slider("temp", -1))
+        self.slider_temp = QSlider(Qt.Horizontal)
+        self.slider_temp.setRange(0, 50)
+        self.slider_temp.setValue(int(hardware.sim_temp))
+        self.slider_temp.valueChanged.connect(self.on_sim_slider_changed)
+        btn_t_plus = QPushButton("+1")
+        btn_t_plus.setFixedSize(28, 22)
+        btn_t_plus.clicked.connect(lambda: self.step_sim_slider("temp", 1))
+        row_t_ctrl.addWidget(btn_t_minus)
+        row_t_ctrl.addWidget(self.slider_temp)
+        row_t_ctrl.addWidget(btn_t_plus)
+        s_box.addLayout(row_t_ctrl)
+
+        # 2. Humidity Slider (0 - 100 %)
+        row_h_header = QHBoxLayout()
+        lbl_h = QLabel("💧 Humidity")
+        lbl_h.setFont(QFont("DejaVu Sans", 8, QFont.Bold))
+        lbl_h.setStyleSheet("color: #38bdf8;")
+        self.lbl_sim_h_val = QLabel("64 %")
+        self.lbl_sim_h_val.setFont(QFont("DejaVu Sans", 8, QFont.Bold))
+        self.lbl_sim_h_val.setStyleSheet("color: #ffffff;")
+        row_h_header.addWidget(lbl_h)
+        row_h_header.addStretch()
+        row_h_header.addWidget(self.lbl_sim_h_val)
+        s_box.addLayout(row_h_header)
+
+        row_h_ctrl = QHBoxLayout()
+        btn_h_minus = QPushButton("-5")
+        btn_h_minus.setFixedSize(28, 22)
+        btn_h_minus.clicked.connect(lambda: self.step_sim_slider("hum", -5))
+        self.slider_hum = QSlider(Qt.Horizontal)
+        self.slider_hum.setRange(0, 100)
+        self.slider_hum.setValue(int(hardware.sim_humidity))
+        self.slider_hum.valueChanged.connect(self.on_sim_slider_changed)
+        btn_h_plus = QPushButton("+5")
+        btn_h_plus.setFixedSize(28, 22)
+        btn_h_plus.clicked.connect(lambda: self.step_sim_slider("hum", 5))
+        row_h_ctrl.addWidget(btn_h_minus)
+        row_h_ctrl.addWidget(self.slider_hum)
+        row_h_ctrl.addWidget(btn_h_plus)
+        s_box.addLayout(row_h_ctrl)
+
+        # 3. Soil Moisture Slider (0 - 100 %)
+        row_s_header = QHBoxLayout()
+        lbl_s = QLabel("🌱 Soil Moisture (Auto Motor Trigger)")
+        lbl_s.setFont(QFont("DejaVu Sans", 8, QFont.Bold))
+        lbl_s.setStyleSheet("color: #10b981;")
+        self.lbl_sim_s_val = QLabel("42 %")
+        self.lbl_sim_s_val.setFont(QFont("DejaVu Sans", 8, QFont.Bold))
+        self.lbl_sim_s_val.setStyleSheet("color: #ffffff;")
+        row_s_header.addWidget(lbl_s)
+        row_s_header.addStretch()
+        row_s_header.addWidget(self.lbl_sim_s_val)
+        s_box.addLayout(row_s_header)
+
+        row_s_ctrl = QHBoxLayout()
+        btn_s_minus = QPushButton("-5")
+        btn_s_minus.setFixedSize(28, 22)
+        btn_s_minus.clicked.connect(lambda: self.step_sim_slider("soil", -5))
+        self.slider_soil = QSlider(Qt.Horizontal)
+        self.slider_soil.setRange(0, 100)
+        self.slider_soil.setValue(int(hardware.sim_soil_moisture))
+        self.slider_soil.valueChanged.connect(self.on_sim_slider_changed)
+        btn_s_plus = QPushButton("+5")
+        btn_s_plus.setFixedSize(28, 22)
+        btn_s_plus.clicked.connect(lambda: self.step_sim_slider("soil", 5))
+        row_s_ctrl.addWidget(btn_s_minus)
+        row_s_ctrl.addWidget(self.slider_soil)
+        row_s_ctrl.addWidget(btn_s_plus)
+        s_box.addLayout(row_s_ctrl)
+
+        layout.addWidget(sliders_card)
         layout.addStretch()
+        self.refresh_simulator_ui()
 
-    def select_crop(self, crop_key: str):
-        hardware.set_crop(crop_key)
-        for k, btn in self.crop_buttons.items():
-            btn.setObjectName("BtnCropActive" if k == crop_key else "BtnCropInactive")
-            btn.style().unpolish(btn)
-            btn.style().polish(btn)
+    def action_toggle_simulator(self):
+        hardware.toggle_simulator_mode()
+        self.refresh_simulator_ui()
         self.update_telemetry()
+
+    def step_sim_slider(self, kind: str, delta: int):
+        if kind == "temp":
+            self.slider_temp.setValue(max(0, min(50, self.slider_temp.value() + delta)))
+        elif kind == "hum":
+            self.slider_hum.setValue(max(0, min(100, self.slider_hum.value() + delta)))
+        elif kind == "soil":
+            self.slider_soil.setValue(max(0, min(100, self.slider_soil.value() + delta)))
+
+    def on_sim_slider_changed(self):
+        t = float(self.slider_temp.value())
+        h = float(self.slider_hum.value())
+        s = float(self.slider_soil.value())
+        self.lbl_sim_t_val.setText(f"{t:.1f} °C")
+        self.lbl_sim_h_val.setText(f"{int(h)} %")
+        self.lbl_sim_s_val.setText(f"{int(s)} %")
+        hardware.set_simulated_sensors(t, h, s)
+        self.update_telemetry()
+
+    def refresh_simulator_ui(self):
+        is_on = hardware.simulator_mode
+        if is_on:
+            self.btn_sim_toggle.setText("SIMULATOR: ON")
+            self.btn_sim_toggle.setStyleSheet("background: #059669; color: #ffffff; border: 2px solid #34d399; font-weight: bold; border-radius: 6px;")
+        else:
+            self.btn_sim_toggle.setText("SIMULATOR: OFF")
+            self.btn_sim_toggle.setStyleSheet("background: #1e293b; color: #94a3b8; border: 1.5px solid #475569; font-weight: bold; border-radius: 6px;")
+        self.lbl_sim_t_val.setText(f"{hardware.sim_temp:.1f} °C")
+        self.lbl_sim_h_val.setText(f"{int(hardware.sim_humidity)} %")
+        self.lbl_sim_s_val.setText(f"{int(hardware.sim_soil_moisture)} %")
+        self.slider_temp.blockSignals(True)
+        self.slider_hum.blockSignals(True)
+        self.slider_soil.blockSignals(True)
+        self.slider_temp.setValue(int(hardware.sim_temp))
+        self.slider_hum.setValue(int(hardware.sim_humidity))
+        self.slider_soil.setValue(int(hardware.sim_soil_moisture))
+        self.slider_temp.blockSignals(False)
+        self.slider_hum.blockSignals(False)
+        self.slider_soil.blockSignals(False)
 
     # --- TAB 1: CUTOFFS ---
     def init_tab_cutoffs(self):
@@ -953,10 +1105,19 @@ class IoTTouchDashboard(QMainWindow):
         # Update Clock
         self.lbl_clock.setText(data["timestamp"])
 
-        # Update Crop Badge
+        # Update Simulator / Threshold Badge & Button
         dry_cut = int(data["dry_cutoff"])
         stop_cut = int(data["stop_cutoff"])
-        self.lbl_crop_badge.setText(f"{data['crop_icon']} {data['crop_name']} ({dry_cut}%-{stop_cut}%)")
+        if data.get("simulator_mode", False):
+            self.lbl_crop_badge.setText(f"🎮 SIMULATOR ({dry_cut}%-{stop_cut}%)")
+            self.lbl_crop_badge.setStyleSheet("color: #38bdf8; background: #0c2340; border: 1px solid #0284c7; border-radius: 4px; padding: 2px 6px;")
+            self.btn_quick_sim.setText("🎮 SIM: ON")
+            self.btn_quick_sim.setStyleSheet("background: #064e3b; border: 1px solid #10b981; font-size: 9px; color: #34d399; font-weight: bold;")
+        else:
+            self.lbl_crop_badge.setText(f"💧 Cutoff: {dry_cut}% - {stop_cut}%")
+            self.lbl_crop_badge.setStyleSheet("color: #34d399; background: #064e3b; border-radius: 4px; padding: 2px 6px;")
+            self.btn_quick_sim.setText("🎮 Simulator")
+            self.btn_quick_sim.setStyleSheet("background: #0f172a; border: 1px solid #334155; font-size: 9px; color: #38bdf8;")
 
         # Update Temperature
         self.lbl_temp_val.setText(f"{data['temperature_c']}")

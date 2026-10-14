@@ -98,18 +98,23 @@ class HardwareManager:
         self.pump_pin_num = pump_pin
         self.active_high = active_high
 
-        # State variables
-        self.temperature_c = 28.4
-        self.humidity = 64.0
-        self.soil_moisture = 42.0
-        self.pump_on = False
-        self.pump_mode = "AUTO"  # "AUTO" or "MANUAL"
+        # Real Hardware sensor state (from Arduino Mega)
+        self.real_temperature_c = None
+        self.real_humidity = None
+        self.real_soil_moisture = None
+        self.real_rain = 0
+        self.real_light = 0
+        self.real_water_level = 0
+        self.last_hardware_packet_time = 0.0
 
-        # Simulator Mode variables (controlled via UI sliders)
+        # Simulator Mode variables (controlled via UI sliders only when explicitly enabled)
         self.simulator_mode = False
         self.sim_temp = 28.0
         self.sim_humidity = 64.0
         self.sim_soil_moisture = 42.0
+
+        self.pump_on = False
+        self.pump_mode = "AUTO"  # "AUTO" or "MANUAL"
 
         # Crop selection & Cutoff Percentages
         self.selected_crop = "tomato"
@@ -138,9 +143,13 @@ class HardwareManager:
             self.serial_thread = threading.Thread(target=self._serial_loop, daemon=True)
             self.serial_thread.start()
 
-        # Background simulation & auto-irrigation thread
+        # Background watchdog & auto-irrigation thread
         self.worker_thread = threading.Thread(target=self._loop, daemon=True)
         self.worker_thread.start()
+
+    @property
+    def is_hardware_online(self) -> bool:
+        return self.arduino_connected and ((time.time() - self.last_hardware_packet_time) < 3.5)
 
     def load_settings(self):
         """Loads saved cutoff percentages, crop profile, and simulator state from JSON config."""
@@ -156,10 +165,6 @@ class HardwareManager:
                     self.sim_temp = float(data.get("sim_temp", 28.0))
                     self.sim_humidity = float(data.get("sim_humidity", 64.0))
                     self.sim_soil_moisture = float(data.get("sim_soil_moisture", 42.0))
-                    if self.simulator_mode:
-                        self.temperature_c = self.sim_temp
-                        self.humidity = self.sim_humidity
-                        self.soil_moisture = self.sim_soil_moisture
                     print(f"[Hardware] Loaded settings: Simulator={self.simulator_mode}, Crop={self.selected_crop}, Dry Cutoff={self.soil_dry_threshold}%, Stop Cutoff={self.soil_target_moisture}%")
             except Exception as e:
                 print(f"[Hardware] Error loading settings file: {e}")
@@ -230,13 +235,9 @@ class HardwareManager:
         return cur
 
     def set_simulator_mode(self, enabled: bool) -> bool:
-        """Toggles manual simulator mode. When enabled, slider values override physical/drift inputs."""
+        """Toggles manual simulator mode. When enabled, slider values override physical inputs."""
         with self.lock:
             self.simulator_mode = bool(enabled)
-            if self.simulator_mode:
-                self.temperature_c = self.sim_temp
-                self.humidity = self.sim_humidity
-                self.soil_moisture = self.sim_soil_moisture
         self.save_settings()
         self._check_auto_irrigation()
         print(f"[Hardware] Simulator Mode -> {'ENABLED' if self.simulator_mode else 'DISABLED'}")
@@ -250,16 +251,10 @@ class HardwareManager:
         with self.lock:
             if temp is not None:
                 self.sim_temp = round(float(temp), 1)
-                if self.simulator_mode:
-                    self.temperature_c = self.sim_temp
             if humidity is not None:
                 self.sim_humidity = round(float(humidity), 1)
-                if self.simulator_mode:
-                    self.humidity = self.sim_humidity
             if soil_moisture is not None:
                 self.sim_soil_moisture = round(float(soil_moisture), 1)
-                if self.simulator_mode:
-                    self.soil_moisture = self.sim_soil_moisture
 
         self.save_settings()
         self._check_auto_irrigation()
@@ -267,25 +262,37 @@ class HardwareManager:
     def _check_auto_irrigation(self):
         """Triggers real-time auto-irrigation evaluation when thresholds or moisture change."""
         with self.lock:
-            if self.pump_mode == "AUTO":
-                if self.soil_moisture < self.soil_dry_threshold and not self.pump_on:
-                    print(f"[Auto-Irrigation] Soil ({self.soil_moisture:.1f}% < {self.soil_dry_threshold}%). Starting pump!")
-                    self.pump_on = True
-                    if self.relay_device:
-                        try:
-                            self.relay_device.on()
-                        except Exception as e:
-                            print(f"[Hardware] Relay on error: {e}")
-                    self._send_serial_cmd("PUMP:ON\n")
-                elif self.soil_moisture >= self.soil_target_moisture and self.pump_on:
-                    print(f"[Auto-Irrigation] Soil reached target ({self.soil_moisture:.1f}% >= {self.soil_target_moisture}%). Stopping pump.")
-                    self.pump_on = False
-                    if self.relay_device:
-                        try:
-                            self.relay_device.off()
-                        except Exception as e:
-                            print(f"[Hardware] Relay off error: {e}")
-                    self._send_serial_cmd("PUMP:OFF\n")
+            if self.pump_mode != "AUTO":
+                return
+
+            if self.simulator_mode:
+                soil = self.sim_soil_moisture
+            elif self.is_hardware_online and self.real_soil_moisture is not None:
+                soil = self.real_soil_moisture
+            else:
+                soil = None
+
+            if soil is None:
+                return
+
+            if soil < self.soil_dry_threshold and not self.pump_on:
+                print(f"[Auto-Irrigation] Soil ({soil:.1f}% < {self.soil_dry_threshold}%). Starting pump!")
+                self.pump_on = True
+                if self.relay_device:
+                    try:
+                        self.relay_device.on()
+                    except Exception as e:
+                        print(f"[Hardware] Relay on error: {e}")
+                self._send_serial_cmd("PUMP:ON\n")
+            elif soil >= self.soil_target_moisture and self.pump_on:
+                print(f"[Auto-Irrigation] Soil reached target ({soil:.1f}% >= {self.soil_target_moisture}%). Stopping pump.")
+                self.pump_on = False
+                if self.relay_device:
+                    try:
+                        self.relay_device.off()
+                    except Exception as e:
+                        print(f"[Hardware] Relay off error: {e}")
+                self._send_serial_cmd("PUMP:OFF\n")
 
     def _send_serial_cmd(self, cmd_str: str):
         """Sends command to Arduino Mega via USB serial if connected."""
@@ -369,12 +376,31 @@ class HardwareManager:
         }
 
     def get_telemetry(self) -> Dict[str, Any]:
-        """Returns snapshot of live telemetry, crop info, and thresholds."""
+        """Returns snapshot of live telemetry, crop info, thresholds, and real connection status."""
         with self.lock:
-            temp_c = round(self.temperature_c, 1)
-            temp_f = round((temp_c * 9.0 / 5.0) + 32.0, 1)
-            hum = round(self.humidity, 1)
-            soil = round(self.soil_moisture, 1)
+            hw_online = self.is_hardware_online
+            sim_mode = self.simulator_mode
+
+            if sim_mode:
+                temp_c = round(self.sim_temp, 1)
+                temp_f = round((temp_c * 9.0 / 5.0) + 32.0, 1)
+                hum = round(self.sim_humidity, 1)
+                soil = round(self.sim_soil_moisture, 1)
+                status_label = "SIMULATOR"
+            elif hw_online:
+                temp_c = round(self.real_temperature_c, 1) if self.real_temperature_c is not None else None
+                temp_f = round((temp_c * 9.0 / 5.0) + 32.0, 1) if temp_c is not None else None
+                hum = round(self.real_humidity, 1) if self.real_humidity is not None else None
+                soil = round(self.real_soil_moisture, 1) if self.real_soil_moisture is not None else None
+                status_label = "ONLINE"
+            else:
+                # Real mode and hardware not connected
+                temp_c = None
+                temp_f = None
+                hum = None
+                soil = None
+                status_label = "NOT_CONNECTED"
+
             pump = self.pump_on
             mode = self.pump_mode
             dry_cut = round(self.soil_dry_threshold, 1)
@@ -383,15 +409,22 @@ class HardwareManager:
 
         crop_info = CROP_PRESETS.get(crop_key, CROP_PRESETS["custom"])
 
-        if soil < dry_cut:
-            condition = "DRY (PUMP NEEDED)"
+        if not sim_mode and not hw_online:
+            condition = "NOT CONNECTED"
             condition_color = "#ef4444"
-        elif soil > stop_cut:
-            condition = "SATURATED / WET"
-            condition_color = "#38bdf8"
+        elif soil is not None:
+            if soil < dry_cut:
+                condition = "DRY (PUMP NEEDED)"
+                condition_color = "#ef4444"
+            elif soil > stop_cut:
+                condition = "SATURATED / WET"
+                condition_color = "#38bdf8"
+            else:
+                condition = "OPTIMAL MOISTURE"
+                condition_color = "#10b981"
         else:
-            condition = "OPTIMAL MOISTURE"
-            condition_color = "#10b981"
+            condition = "NOT CONNECTED"
+            condition_color = "#ef4444"
 
         return {
             "temperature_c": temp_c,
@@ -409,8 +442,10 @@ class HardwareManager:
             "crop_name": crop_info["name"],
             "crop_icon": crop_info["icon"],
             "crop_desc": crop_info["desc"],
-            "arduino_mega_online": self.arduino_connected,
-            "simulator_mode": self.simulator_mode,
+            "arduino_mega_online": hw_online,
+            "hardware_connected": hw_online,
+            "hardware_status": status_label,
+            "simulator_mode": sim_mode,
             "sim_temp": self.sim_temp,
             "sim_humidity": self.sim_humidity,
             "sim_soil_moisture": self.sim_soil_moisture,
@@ -427,59 +462,56 @@ class HardwareManager:
                         s = serial.Serial(port, 115200, timeout=1.5)
                         time.sleep(2.0)  # Allow Arduino reset on connect
                         self.serial_conn = s
-                        self.arduino_connected = True
                         print(f"[Hardware] Successfully connected to Arduino Mega on {port} @ 115200 baud")
                         self._send_serial_cmd(f"CUTOFF:{self.soil_dry_threshold}:{self.soil_target_moisture}\n")
                         break
                     except Exception:
                         pass
                 if not self.serial_conn:
-                    time.sleep(3.0)
+                    self.arduino_connected = False
+                    time.sleep(2.0)
                     continue
 
             try:
                 line = self.serial_conn.readline().decode('utf-8', errors='ignore').strip()
-                if line.startswith("{") and line.endswith("}"):
-                    data = json.loads(line)
+                if "{" in line and "}" in line:
+                    s_idx = line.find("{")
+                    e_idx = line.rfind("}") + 1
+                    data = json.loads(line[s_idx:e_idx])
                     with self.lock:
-                        # Only accept sensor input from hardware if simulator mode is disabled
-                        if not self.simulator_mode:
-                            if "temp" in data:
-                                self.temperature_c = float(data["temp"])
-                            if "humidity" in data:
-                                self.humidity = float(data["humidity"])
-                            if "soil" in data:
-                                self.soil_moisture = float(data["soil"])
+                        self.last_hardware_packet_time = time.time()
+                        self.arduino_connected = True
+                        if "temp" in data:
+                            self.real_temperature_c = float(data["temp"])
+                        if "humidity" in data:
+                            self.real_humidity = float(data["humidity"])
+                        if "soil" in data:
+                            self.real_soil_moisture = float(data["soil"])
+                        if "rain" in data:
+                            self.real_rain = int(data["rain"])
+                        if "light" in data:
+                            self.real_light = int(data["light"])
+                        if "water_level" in data:
+                            self.real_water_level = int(data["water_level"])
                         if "pump" in data and self.pump_mode == "AUTO":
                             self.pump_on = bool(data["pump"])
+                else:
+                    if (time.time() - self.last_hardware_packet_time) > 4.0:
+                        self.arduino_connected = False
             except Exception as e:
-                print(f"[Hardware] Serial read error: {e}. Reconnecting...")
+                print(f"[Hardware] Serial connection lost: {e}. Reconnecting...")
                 try:
                     self.serial_conn.close()
                 except Exception:
                     pass
                 self.serial_conn = None
                 self.arduino_connected = False
-                time.sleep(2.0)
+                time.sleep(1.5)
 
     def _loop(self):
-        """Simulates dynamic sensor physics when Arduino is offline and handles auto-irrigation."""
-        tick = 0
+        """Periodic auto-irrigation checker (pure real hardware control, no fake data generation)."""
         while self.running:
             time.sleep(1.0)
-            tick += 1
-
-            with self.lock:
-                # If simulator mode is OFF, run fallback physical simulation when Arduino is offline
-                if not self.simulator_mode and not self.arduino_connected:
-                    self.temperature_c = 28.0 + (1.8 * math.sin(tick * 0.05)) + random.uniform(-0.15, 0.15)
-                    self.humidity = 64.0 + (4.0 * math.cos(tick * 0.04)) + random.uniform(-0.3, 0.3)
-
-                    if self.pump_on:
-                        self.soil_moisture = min(92.0, self.soil_moisture + random.uniform(1.2, 1.8))
-                    else:
-                        self.soil_moisture = max(18.0, self.soil_moisture - random.uniform(0.1, 0.25))
-
             self._check_auto_irrigation()
 
 

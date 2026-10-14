@@ -3,7 +3,7 @@
   "dry_cutoff": 35.0,
   "stop_cutoff": 65.0,
   "pump_mode": "AUTO",
-  "simulator_mode": true,
+  "simulator_mode": false,
   "sim_temp": 31.2,
   "sim_humidity": 45.0,
   "sim_soil_moisture": 70.0

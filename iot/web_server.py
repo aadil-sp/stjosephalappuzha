@@ -356,7 +356,7 @@ HTML_BLYNK_DASHBOARD = """
             <div class="blynk-card" style="border-color: #38bdf8;">
                 <div class="card-tag" style="color: #38bdf8;">💧 HUMIDITY</div>
                 <div class="card-val" id="hum" style="color: #38bdf8;">--.-</div>
-                <div class="card-sub">% RH (Normal)</div>
+                <div class="card-sub" id="hum_sub">% RH (Normal)</div>
                 <div class="meter"><div class="meter-fill" id="hum_bar" style="background: #38bdf8; width: 60%;"></div></div>
             </div>
             <div class="blynk-card" id="soil_card" style="border-color: #10b981;">
@@ -579,8 +579,8 @@ HTML_BLYNK_DASHBOARD = """
 
                     modalToggle.className = 'btn-motor on';
                     modalToggle.innerText = '🎮 SIMULATOR MODE: ON';
-                } else {
-                    badge.innerText = `💧 Cutoff: ${data.dry_cutoff}% - ${data.stop_cutoff}%`;
+                } else if (data.hardware_connected) {
+                    badge.innerText = `● HARDWARE ONLINE (${data.dry_cutoff}% - ${data.stop_cutoff}%)`;
                     badge.style.color = '#10b981';
                     badge.style.borderColor = '#10b981';
                     badge.style.background = 'rgba(16, 185, 129, 0.2)';
@@ -588,28 +588,57 @@ HTML_BLYNK_DASHBOARD = """
 
                     modalToggle.className = 'btn-motor off';
                     modalToggle.innerText = '🎮 SIMULATOR MODE: OFF';
+                } else {
+                    badge.innerText = '⚠️ NOT CONNECTED';
+                    badge.style.color = '#ef4444';
+                    badge.style.borderColor = '#ef4444';
+                    badge.style.background = 'rgba(239, 68, 68, 0.2)';
+                    simDock.style.display = 'none';
+
+                    modalToggle.className = 'btn-motor off';
+                    modalToggle.innerText = '🎮 SIMULATOR MODE: OFF';
                 }
 
                 // Temperature
-                document.getElementById('temp_c').innerText = data.temperature_c;
-                document.getElementById('temp_sub').innerText = '°C  |  ' + data.temperature_f + ' °F';
-                document.getElementById('temp_bar').style.width = Math.min(100, data.temperature_c * 2) + '%';
+                if (data.temperature_c !== null && data.temperature_c !== undefined) {
+                    document.getElementById('temp_c').innerText = parseFloat(data.temperature_c).toFixed(1);
+                    document.getElementById('temp_sub').innerText = '°C  |  ' + data.temperature_f + ' °F';
+                    document.getElementById('temp_bar').style.width = Math.min(100, Math.max(0, data.temperature_c * 2)) + '%';
+                } else {
+                    document.getElementById('temp_c').innerText = '--.-';
+                    document.getElementById('temp_sub').innerText = 'NOT CONNECTED';
+                    document.getElementById('temp_bar').style.width = '0%';
+                }
 
                 // Humidity
-                document.getElementById('hum').innerText = data.humidity;
-                document.getElementById('hum_bar').style.width = data.humidity + '%';
+                if (data.humidity !== null && data.humidity !== undefined) {
+                    document.getElementById('hum').innerText = parseInt(data.humidity);
+                    document.getElementById('hum_sub').innerText = '% RH (Normal)';
+                    document.getElementById('hum_bar').style.width = Math.min(100, Math.max(0, data.humidity)) + '%';
+                } else {
+                    document.getElementById('hum').innerText = '--.-';
+                    document.getElementById('hum_sub').innerText = 'NOT CONNECTED';
+                    document.getElementById('hum_bar').style.width = '0%';
+                }
 
                 // Soil Moisture
-                document.getElementById('soil').innerText = data.soil_moisture;
-                document.getElementById('soil_bar').style.width = data.soil_moisture + '%';
-                document.getElementById('soil_badge').innerText = data.soil_condition;
-                document.getElementById('soil_badge').style.color = data.soil_color;
+                if (data.soil_moisture !== null && data.soil_moisture !== undefined) {
+                    document.getElementById('soil').innerText = parseInt(data.soil_moisture);
+                    document.getElementById('soil_bar').style.width = Math.min(100, Math.max(0, data.soil_moisture)) + '%';
+                    document.getElementById('soil_badge').innerText = data.soil_condition;
+                    document.getElementById('soil_badge').style.color = data.soil_color;
+                } else {
+                    document.getElementById('soil').innerText = '--.-';
+                    document.getElementById('soil_bar').style.width = '0%';
+                    document.getElementById('soil_badge').innerText = 'NOT CONNECTED';
+                    document.getElementById('soil_badge').style.color = '#ef4444';
+                }
 
                 // Sync Sliders if user is not actively dragging
                 if (!isUserAdjustingSlider) {
-                    const simT = data.sim_temp !== undefined ? data.sim_temp : data.temperature_c;
-                    const simH = data.sim_humidity !== undefined ? data.sim_humidity : data.humidity;
-                    const simS = data.sim_soil_moisture !== undefined ? data.sim_soil_moisture : data.soil_moisture;
+                    const simT = data.sim_temp !== undefined ? data.sim_temp : 28.0;
+                    const simH = data.sim_humidity !== undefined ? data.sim_humidity : 64.0;
+                    const simS = data.sim_soil_moisture !== undefined ? data.sim_soil_moisture : 42.0;
 
                     document.getElementById('dock_temp').value = simT;
                     document.getElementById('dock_temp_val').innerText = `${parseFloat(simT).toFixed(1)} °C`;
@@ -629,7 +658,11 @@ HTML_BLYNK_DASHBOARD = """
                 currentDry = data.dry_cutoff;
                 currentStop = data.stop_cutoff;
 
-                document.getElementById('cutoff_display').innerText = `Cutoff: Start < ${currentDry}% | Stop >= ${currentStop}%`;
+                if (data.hardware_connected || data.simulator_mode) {
+                    document.getElementById('cutoff_display').innerText = `Cutoff: Start < ${currentDry}% | Stop >= ${currentStop}%`;
+                } else {
+                    document.getElementById('cutoff_display').innerText = '⚠️ Hardware Disconnected - Waiting for Arduino Mega...';
+                }
                 document.getElementById('modal_dry_val').innerText = currentDry + ' %';
                 document.getElementById('modal_stop_val').innerText = currentStop + ' %';
 

@@ -1105,37 +1105,68 @@ class IoTTouchDashboard(QMainWindow):
         # Update Clock
         self.lbl_clock.setText(data["timestamp"])
 
-        # Update Simulator / Threshold Badge & Button
+        # Update Simulator / Threshold / Connection Badge & Button
         dry_cut = int(data["dry_cutoff"])
         stop_cut = int(data["stop_cutoff"])
-        if data.get("simulator_mode", False):
+        hw_online = data.get("hardware_connected", False)
+        sim_mode = data.get("simulator_mode", False)
+
+        if sim_mode:
             self.lbl_crop_badge.setText(f"🎮 SIMULATOR ({dry_cut}%-{stop_cut}%)")
             self.lbl_crop_badge.setStyleSheet("color: #38bdf8; background: #0c2340; border: 1px solid #0284c7; border-radius: 4px; padding: 2px 6px;")
             self.btn_quick_sim.setText("🎮 SIM: ON")
             self.btn_quick_sim.setStyleSheet("background: #064e3b; border: 1px solid #10b981; font-size: 9px; color: #34d399; font-weight: bold;")
-        else:
-            self.lbl_crop_badge.setText(f"💧 Cutoff: {dry_cut}% - {stop_cut}%")
+        elif hw_online:
+            self.lbl_crop_badge.setText(f"● ONLINE ({dry_cut}%-{stop_cut}%)")
             self.lbl_crop_badge.setStyleSheet("color: #34d399; background: #064e3b; border-radius: 4px; padding: 2px 6px;")
             self.btn_quick_sim.setText("🎮 Simulator")
             self.btn_quick_sim.setStyleSheet("background: #0f172a; border: 1px solid #334155; font-size: 9px; color: #38bdf8;")
+        else:
+            self.lbl_crop_badge.setText("⚠️ NOT CONNECTED")
+            self.lbl_crop_badge.setStyleSheet("color: #ffffff; background: #7f1d1d; border: 1px solid #ef4444; border-radius: 4px; padding: 2px 6px;")
+            self.btn_quick_sim.setText("🎮 Simulator")
+            self.btn_quick_sim.setStyleSheet("background: #0f172a; border: 1px solid #334155; font-size: 9px; color: #38bdf8;")
 
-        # Update Temperature
-        self.lbl_temp_val.setText(f"{data['temperature_c']}")
-        self.lbl_temp_sub.setText(f"°C  |  {data['temperature_f']} °F")
-        self.bar_temp.setValue(min(50, max(0, int(data['temperature_c']))))
+        # Update Temperature (Real value or NOT CONNECTED)
+        temp_val = data.get("temperature_c")
+        if temp_val is not None:
+            self.lbl_temp_val.setText(f"{temp_val:.1f}")
+            self.lbl_temp_sub.setText(f"°C  |  {data['temperature_f']} °F")
+            self.bar_temp.setValue(min(50, max(0, int(temp_val))))
+        else:
+            self.lbl_temp_val.setText("--.-")
+            self.lbl_temp_sub.setText("NOT CONNECTED")
+            self.bar_temp.setValue(0)
 
-        # Update Humidity
-        self.lbl_hum_val.setText(f"{data['humidity']}")
-        self.bar_hum.setValue(min(100, max(0, int(data['humidity']))))
+        # Update Humidity (Real value or NOT CONNECTED)
+        hum_val = data.get("humidity")
+        if hum_val is not None:
+            self.lbl_hum_val.setText(f"{hum_val:.1f}")
+            self.lbl_hum_sub.setText("% RH (Normal)")
+            self.bar_hum.setValue(min(100, max(0, int(hum_val))))
+        else:
+            self.lbl_hum_val.setText("--.-")
+            self.lbl_hum_sub.setText("NOT CONNECTED")
+            self.bar_hum.setValue(0)
 
-        # Update Soil Moisture
-        self.lbl_soil_val.setText(f"{data['soil_moisture']}")
-        self.bar_soil.setValue(int(data["soil_moisture"]))
-        self.lbl_soil_badge.setText(data["soil_condition"])
-        self.lbl_soil_badge.setStyleSheet(f"color: {data['soil_color']}; font-weight: bold;")
+        # Update Soil Moisture (Real value or NOT CONNECTED)
+        soil_val = data.get("soil_moisture")
+        if soil_val is not None:
+            self.lbl_soil_val.setText(f"{soil_val:.1f}")
+            self.bar_soil.setValue(min(100, max(0, int(soil_val))))
+            self.lbl_soil_badge.setText(data["soil_condition"])
+            self.lbl_soil_badge.setStyleSheet(f"color: {data['soil_color']}; font-weight: bold;")
+        else:
+            self.lbl_soil_val.setText("--.-")
+            self.bar_soil.setValue(0)
+            self.lbl_soil_badge.setText("NOT CONNECTED")
+            self.lbl_soil_badge.setStyleSheet("color: #ef4444; font-weight: bold;")
 
         # Cutoffs info in Main View
-        self.lbl_cutoff_summary.setText(f"Cutoff: Start < {dry_cut}% | Stop >= {stop_cut}%")
+        if hw_online or sim_mode:
+            self.lbl_cutoff_summary.setText(f"Cutoff: Start < {dry_cut}% | Stop >= {stop_cut}%")
+        else:
+            self.lbl_cutoff_summary.setText("⚠️ Arduino Mega Disconnected (/dev/ttyACM0)")
         self.lbl_dry_cutoff_val.setText(f"{dry_cut} %")
         self.lbl_stop_cutoff_val.setText(f"{stop_cut} %")
 

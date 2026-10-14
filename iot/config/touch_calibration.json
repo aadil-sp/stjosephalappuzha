@@ -1,0 +1,52 @@
+{
+  "samples": [
+    {
+      "step": 1,
+      "name": "1. Top-Left Corner",
+      "target_x": 60,
+      "target_y": 50,
+      "raw_x": 3482,
+      "raw_y": 774
+    },
+    {
+      "step": 2,
+      "name": "2. Top-Right Corner",
+      "target_x": 420,
+      "target_y": 50,
+      "raw_x": 698,
+      "raw_y": 809
+    },
+    {
+      "step": 3,
+      "name": "3. Bottom-Right Corner",
+      "target_x": 420,
+      "target_y": 270,
+      "raw_x": 689,
+      "raw_y": 3348
+    },
+    {
+      "step": 4,
+      "name": "4. Bottom-Left Corner",
+      "target_x": 60,
+      "target_y": 270,
+      "raw_x": 3497,
+      "raw_y": 3332
+    },
+    {
+      "step": 5,
+      "name": "5. Center",
+      "target_x": 240,
+      "target_y": 160,
+      "raw_x": 2096,
+      "raw_y": 2064
+    }
+  ],
+  "transform": {
+    "a": -0.12875132866286174,
+    "b": 0.00015372302916662417,
+    "c": 509.08178054973115,
+    "d": 0.0007860774286883241,
+    "e": 0.08632310571523769,
+    "f": -19.936530956039377
+  }
+}

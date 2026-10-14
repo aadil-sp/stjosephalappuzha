@@ -1,0 +1,15 @@
+[Unit]
+Description=Smart IoT Agriculture 3.5 Inch Touch Dashboard
+After=systemd-user-sessions.service network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/school/stjoseph_iot
+Environment=QT_QPA_PLATFORM=linuxfb:fb=/dev/fb1
+ExecStart=/usr/bin/python3 /home/school/stjoseph_iot/main.py --fullscreen
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

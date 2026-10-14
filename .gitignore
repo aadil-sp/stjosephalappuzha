@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+
+# Build and binary files
+*.o
+*.hex
+*.elf
+*.bin
+build/
+dist/
+
+# Environment and sensitive files
+.env
+*.local
+credentials.json
+
+# IDE and OS
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs and runtime snapshots
+*.log
+animal-deterrence/alerts/snapshots/*.jpg
+!animal-deterrence/alerts/snapshots/.gitkeep
+

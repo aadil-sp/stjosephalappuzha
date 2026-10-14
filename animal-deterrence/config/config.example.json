@@ -1,0 +1,30 @@
+{
+  "system": {
+    "device_id": "deterrent_node_01",
+    "mode": "automatic",
+    "debug": true
+  },
+  "detection": {
+    "pir_pin": 14,
+    "ultrasonic_trig_pin": 12,
+    "ultrasonic_echo_pin": 13,
+    "detection_threshold_meters": 5.0,
+    "motion_cooldown_seconds": 10
+  },
+  "deterrents": {
+    "ultrasonic_buzzer_pin": 25,
+    "ultrasonic_freq_khz_range": [20, 45],
+    "strobe_light_pin": 26,
+    "siren_relay_pin": 27,
+    "activation_duration_seconds": 8
+  },
+  "alerts": {
+    "enable_gsm": false,
+    "gsm_rx_pin": 16,
+    "gsm_tx_pin": 17,
+    "alert_phone_numbers": ["+91XXXXXXXXXX"],
+    "enable_telegram": false,
+    "telegram_bot_token": "",
+    "telegram_chat_id": ""
+  }
+}

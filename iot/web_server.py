@@ -479,11 +479,6 @@ HTML_BLYNK_DASHBOARD = """
                             <td style="padding: 5px; color: #f97316; font-weight: bold;">Pin 8 (Digital)</td>
                             <td style="padding: 5px; color: #94a3b8;">Signal IN (Active LOW)</td>
                         </tr>
-                        <tr style="border-bottom: 1px solid #1e293b;">
-                            <td style="padding: 5px;">🔊 Deterrence Buzzer</td>
-                            <td style="padding: 5px; color: #ec4899; font-weight: bold;">Pin 9 (PWM)</td>
-                            <td style="padding: 5px; color: #94a3b8;">Pos (+) to Pin 9, Neg to GND</td>
-                        </tr>
                         <tr>
                             <td style="padding: 5px;">💡 Status LED</td>
                             <td style="padding: 5px; color: #eab308; font-weight: bold;">Pin 13 (Built-in)</td>

@@ -1,18 +1,17 @@
 /*
  * Smart Farm IoT Controller - Arduino Mega 2560 Firmware
- * St. Joseph Alappuzha Project
+ * St. Joseph Alappuzha Project (Pure IoT System)
  * 
  * Hardware Connections:
  * ================================================================
  * Sensor / Actuator       | Arduino Mega Pin | Notes
  * ------------------------+------------------+--------------------
- * Soil Moisture Sensor A0 | A0 (Analog)      | 0-100% moisture
+ * Soil Moisture Sensor A0 | A0 (Analog)      | 0-100% soil moisture
  * Rain Drop Sensor A0     | A1 (Analog)      | Detects rainfall
- * LDR Light Sensor        | A2 (Analog)      | Sunlight level
+ * LDR Light Sensor        | A2 (Analog)      | Sunlight / LUX level
  * Water Tank Level Sensor | A3 (Analog)      | Float / depth level
  * DHT11/DHT22 Temp & Hum  | Pin 2 (Digital)  | 1-wire data bus
- * Water Pump Relay IN     | Pin 8 (Digital)  | Relays pump 12V/5V
- * Deterrence Buzzer / ALM | Pin 9 (PWM/Dig)  | Audio deterrence
+ * Water Pump Relay IN     | Pin 8 (Digital)  | Controls water pump
  * Status Indicator LED    | Pin 13 (Builtin) | Heartbeat toggle
  * Raspberry Pi 4 Link     | USB Serial       | 115200 baud
  * ================================================================
@@ -27,7 +26,6 @@ const int PIN_LDR           = A2;
 const int PIN_WATER_LEVEL   = A3;
 const int PIN_DHT           = 2;
 const int PIN_PUMP_RELAY    = 8;
-const int PIN_BUZZER        = 9;
 const int PIN_HEARTBEAT_LED = 13;
 
 // Set relay active logic (most Arduino relay modules are Active LOW)
@@ -59,7 +57,6 @@ unsigned long last_dht_read_time = 0;
 String serial_buffer = "";
 
 // --- BIT-BANG DHT11 / DHT22 SENSOR DRIVER ---
-// Self-contained, works without requiring external library installs
 bool read_dht(float &temp_out, float &hum_out) {
   uint8_t data[5] = {0, 0, 0, 0, 0};
   
@@ -95,24 +92,22 @@ bool read_dht(float &temp_out, float &hum_out) {
     while (digitalRead(PIN_DHT) == HIGH) {
       if (micros() - timeout > 100) return false;
     }
-    // High pulse > 40us means bit '1', else '0'
     if ((micros() - pulse_start) > 40) {
       data[i / 8] |= (1 << (7 - (i % 8)));
     }
   }
 
-  // Verify checksum
+  // Checksum validation
   if (data[4] != ((data[0] + data[1] + data[2] + data[3]) & 0xFF)) {
     return false;
   }
 
-  // Determine if DHT11 or DHT22
   if (data[1] == 0 && data[3] == 0) {
-    // Typical DHT11 integer readings
+    // DHT11
     hum_out = data[0];
     temp_out = data[2];
   } else {
-    // DHT22 float readings
+    // DHT22
     hum_out = ((data[0] << 8) | data[1]) * 0.1;
     temp_out = (((data[2] & 0x7F) << 8) | data[3]) * 0.1;
     if (data[2] & 0x80) temp_out = -temp_out;
@@ -131,11 +126,10 @@ void set_pump(bool state) {
 void sample_sensors() {
   // 1. Soil Moisture: Capacitive/Resistive (Dry ~ 850-1023, Wet ~ 250-400)
   int raw_soil = analogRead(PIN_SOIL_MOISTURE);
-  // Map raw 1023->0% to 300->100%
   int mapped_soil = map(raw_soil, 1023, 300, 0, 100);
   current_soil = constrain(mapped_soil, 0, 100);
 
-  // 2. Rain Sensor: Analog (Wet ~ 200, Dry ~ 1023)
+  // 2. Rain Sensor: Analog (Wet < 600)
   int raw_rain = analogRead(PIN_RAIN_SENSOR);
   current_rain = (raw_rain < 600) ? 1 : 0;
 
@@ -148,7 +142,7 @@ void sample_sensors() {
   current_water_level = map(raw_water, 0, 700, 0, 100);
   current_water_level = constrain(current_water_level, 0, 100);
 
-  // 5. DHT Sensor (Read every 2 seconds)
+  // 5. DHT Sensor (Sample every 2 seconds)
   if (millis() - last_dht_read_time > 2000) {
     float t = 0, h = 0;
     if (read_dht(t, h)) {
@@ -190,14 +184,6 @@ void process_command(String cmd) {
   else if (cmd == "MODE:MANUAL" || cmd == "MANUAL") {
     auto_mode = false;
     Serial.println(F("{\"ack\":\"MODE_MANUAL\"}"));
-  }
-  else if (cmd == "BUZZ:ON" || cmd == "BUZZER:ON") {
-    tone(PIN_BUZZER, 2000);
-    Serial.println(F("{\"ack\":\"BUZZER_ON\"}"));
-  }
-  else if (cmd == "BUZZ:OFF" || cmd == "BUZZER:OFF") {
-    noTone(PIN_BUZZER);
-    Serial.println(F("{\"ack\":\"BUZZER_OFF\"}"));
   }
   else if (cmd.startsWith("CUTOFF:")) {
     // Format: CUTOFF:35:65
@@ -248,18 +234,12 @@ void setup() {
   Serial.begin(115200);
 
   pinMode(PIN_PUMP_RELAY, OUTPUT);
-  pinMode(PIN_BUZZER, OUTPUT);
   pinMode(PIN_HEARTBEAT_LED, OUTPUT);
   pinMode(PIN_DHT, INPUT_PULLUP);
 
   set_pump(false);
-  noTone(PIN_BUZZER);
 
-  // Beep briefly on startup
-  tone(PIN_BUZZER, 2400, 150);
-  delay(200);
-
-  Serial.println(F("{\"device\":\"Arduino Mega 2560\",\"status\":\"READY\",\"baud\":115200}"));
+  Serial.println(F("{\"device\":\"Arduino Mega 2560\",\"status\":\"READY\",\"system\":\"IoT Agriculture\",\"baud\":115200}"));
 }
 
 void loop() {

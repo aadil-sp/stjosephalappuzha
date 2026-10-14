@@ -868,7 +868,6 @@ class IoTTouchDashboard(QMainWindow):
             ("💧 Water Tank Level", "Pin A3 (Analog)", "VCC: 5V | GND: GND | Depth/Float"),
             ("🌡️ DHT11 / DHT22", "Pin 2 (Digital)", "VCC: 5V | GND: GND | 1-Wire Data"),
             ("⚡ Water Pump Relay", "Pin 8 (Digital)", "Signal IN (Active LOW) to Relay"),
-            ("🔊 Deterrence Buzzer", "Pin 9 (PWM/Dig)", "Pos (+) to Pin 9 | Neg (-) to GND"),
             ("💡 Heartbeat LED", "Pin 13 (Builtin)", "Blinks on pump & serial activity")
         ]
 

@@ -14,7 +14,6 @@ This document provides the complete hardware wiring diagram, pin connections, el
 | **💧 Water Level Sensor** | **`A3`** | Analog Input (0 - 5V) | `5V` | VCC ➔ `5V`<br>GND ➔ `GND`<br>Signal ➔ `A3` (Tank depth) |
 | **🌡️ DHT11 / DHT22 Sensor** | **`Pin 2`** | Digital (1-Wire Bidirectional) | `5V` / `3.3V` | VCC ➔ `5V`<br>GND ➔ `GND`<br>DATA ➔ `Pin 2` |
 | **⚡ Water Pump Relay Module**| **`Pin 8`** | Digital Output (Active LOW) | `5V` | VCC ➔ `5V`<br>GND ➔ `GND`<br>IN1 ➔ `Pin 8` |
-| **🔊 Deterrence Buzzer** | **`Pin 9`** | Digital Output / PWM | `5V` | Positive (+) ➔ `Pin 9`<br>Negative (-) ➔ `GND` |
 | **💡 Status LED** | **`Pin 13`** | Digital Output | Built-in | Blinks on pump activity & serial telemetry |
 | **🖥️ Raspberry Pi 4 Link** | **USB Cable** | Bidirectional UART Serial | `5V` USB | Connects to Pi USB 3.0/2.0 port (`/dev/ttyACM0` @ 115200 baud) |
 
@@ -79,7 +78,6 @@ The Arduino Mega and Raspberry Pi 4 communicate over USB Serial at **115200 baud
 - `MODE:AUTO` — Switches Arduino to automatic soil-threshold irrigation mode.
 - `MODE:MANUAL` — Stops automatic triggering and waits for manual commands.
 - `CUTOFF:<dry>:<stop>` — Updates low and target moisture percentages (e.g., `CUTOFF:30:60`).
-- `BUZZ:ON` / `BUZZ:OFF` — Triggers animal deterrence acoustic alarm.
 
 ---
 

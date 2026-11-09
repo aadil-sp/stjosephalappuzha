@@ -24,7 +24,7 @@ const uint8_t BUZZER_PIN = 8;
 const float TRIGGER_DISTANCE_CM = 30.0;
 
 // Set to true for a passive buzzer (needs a tone), false for an active buzzer.
-const bool PASSIVE_BUZZER = false;
+const bool PASSIVE_BUZZER = true;
 const unsigned int BUZZER_FREQ_HZ = 2500;
 
 // Echo timeout ~ 4 m round trip; anything slower is treated as "nothing there".

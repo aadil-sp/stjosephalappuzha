@@ -7,7 +7,7 @@ A modular Internet of Things (IoT) monitoring and telemetry platform.
 - **Hostname**: `school.local`
 - **IP Address**: `10.180.5.188`
 - **User**: `school`
-- **Password**: `123456` *(Passwordless SSH key already configured from this Mac)*
+- **Password**: stored in `config/.env` as `PI_PASSWORD` (git-ignored; see `config/.env.example`). *Passwordless SSH key already configured from this Mac.*
 - **Model**: Raspberry Pi 4 Model B (Rev 1.2, 2GB RAM)
 - **OS**: Debian GNU/Linux 1:6.18 (aarch64 64-bit) with Python 3.13.5
 - **Project Directory on Pi**: `~/stjoseph_iot/`

@@ -4,6 +4,7 @@ Coordinates temperature, humidity, soil moisture readings, water pump relay cont
 crop profiles, device diagnostics, and configurable cutoff thresholds.
 """
 
+import os
 import time
 import json
 import math
@@ -187,7 +188,6 @@ class HardwareManager:
             print(f"[Hardware] Saved settings to {SETTINGS_FILE}")
         except Exception as e:
             print(f"[Hardware] Error saving settings: {e}")
-            print(f"[Hardware] Error saving settings: {e}")
 
     def set_crop(self, crop_key: str):
         """Selects a crop preset and automatically updates recommended cutoffs."""
@@ -239,6 +239,7 @@ class HardwareManager:
         with self.lock:
             self.simulator_mode = bool(enabled)
         self.save_settings()
+        self._sync_arduino()
         self._check_auto_irrigation()
         print(f"[Hardware] Simulator Mode -> {'ENABLED' if self.simulator_mode else 'DISABLED'}")
         return self.simulator_mode
@@ -265,15 +266,12 @@ class HardwareManager:
             if self.pump_mode != "AUTO":
                 return
 
-            if self.simulator_mode:
-                soil = self.sim_soil_moisture
-            elif self.is_hardware_online and self.real_soil_moisture is not None:
-                soil = self.real_soil_moisture
-            else:
-                soil = None
-
-            if soil is None:
+            # With real sensors the Arduino runs the cutoff logic itself (so irrigation
+            # keeps working if the Pi goes down) and its pump state is mirrored in
+            # _serial_loop. The Pi only drives the pump against simulated soil values.
+            if not self.simulator_mode:
                 return
+            soil = self.sim_soil_moisture
 
             if soil < self.soil_dry_threshold and not self.pump_on:
                 print(f"[Auto-Irrigation] Soil ({soil:.1f}% < {self.soil_dry_threshold}%). Starting pump!")
@@ -294,9 +292,18 @@ class HardwareManager:
                         print(f"[Hardware] Relay off error: {e}")
                 self._send_serial_cmd("PUMP:OFF\n")
 
+    def _sync_arduino(self):
+        """Pushes cutoffs and control mode to the Arduino. Its own AUTO logic is only
+        enabled when the Pi is in AUTO and not simulating; otherwise the Pi drives the pump."""
+        arduino_auto = self.pump_mode == "AUTO" and not self.simulator_mode
+        self._send_serial_cmd(f"CUTOFF:{self.soil_dry_threshold}:{self.soil_target_moisture}\n")
+        self._send_serial_cmd("MODE:AUTO\n" if arduino_auto else "MODE:MANUAL\n")
+        if not arduino_auto:
+            self._send_serial_cmd("PUMP:ON\n" if self.pump_on else "PUMP:OFF\n")
+
     def _send_serial_cmd(self, cmd_str: str):
         """Sends command to Arduino Mega via USB serial if connected."""
-        if self.serial_conn and self.arduino_connected:
+        if self.serial_conn:
             with self.serial_lock:
                 try:
                     self.serial_conn.write(cmd_str.encode('utf-8'))
@@ -333,6 +340,7 @@ class HardwareManager:
             self.pump_mode = "MANUAL" if self.pump_mode == "AUTO" else "AUTO"
             current_mode = self.pump_mode
         self.save_settings()
+        self._sync_arduino()
         print(f"[Hardware] Irrigation Mode -> {current_mode}", flush=True)
         return current_mode
 
@@ -463,7 +471,7 @@ class HardwareManager:
                         time.sleep(2.0)  # Allow Arduino reset on connect
                         self.serial_conn = s
                         print(f"[Hardware] Successfully connected to Arduino Mega on {port} @ 115200 baud")
-                        self._send_serial_cmd(f"CUTOFF:{self.soil_dry_threshold}:{self.soil_target_moisture}\n")
+                        self._sync_arduino()
                         break
                     except Exception:
                         pass
@@ -481,10 +489,11 @@ class HardwareManager:
                     with self.lock:
                         self.last_hardware_packet_time = time.time()
                         self.arduino_connected = True
+                        # temp/humidity arrive as null when the DHT sensor is not responding
                         if "temp" in data:
-                            self.real_temperature_c = float(data["temp"])
+                            self.real_temperature_c = float(data["temp"]) if data["temp"] is not None else None
                         if "humidity" in data:
-                            self.real_humidity = float(data["humidity"])
+                            self.real_humidity = float(data["humidity"]) if data["humidity"] is not None else None
                         if "soil" in data:
                             self.real_soil_moisture = float(data["soil"])
                         if "rain" in data:
@@ -493,8 +502,16 @@ class HardwareManager:
                             self.real_light = int(data["light"])
                         if "water_level" in data:
                             self.real_water_level = int(data["water_level"])
-                        if "pump" in data and self.pump_mode == "AUTO":
+                        if "pump" in data and self.pump_mode == "AUTO" and not self.simulator_mode:
                             self.pump_on = bool(data["pump"])
+                            if self.relay_device:
+                                try:
+                                    self.relay_device.value = self.pump_on
+                                except Exception as e:
+                                    print(f"[Hardware] Relay mirror error: {e}")
+                    # Arduino rebooted (boots in AUTO with default cutoffs): re-push our state
+                    if data.get("status") == "READY":
+                        self._sync_arduino()
                 else:
                     if (time.time() - self.last_hardware_packet_time) > 4.0:
                         self.arduino_connected = False
@@ -513,6 +530,17 @@ class HardwareManager:
         while self.running:
             time.sleep(1.0)
             self._check_auto_irrigation()
+
+
+def run_privileged(args):
+    """Fire-and-forget system command (reboot / service restart). The iot-dashboard
+    service runs as root; otherwise falls back to non-interactive sudo (needs a sudoers rule)."""
+    if os.geteuid() != 0:
+        args = ["sudo", "-n"] + list(args)
+    try:
+        subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception as e:
+        print(f"[System] Failed to run {' '.join(args)}: {e}")
 
 
 # Singleton hardware manager instance

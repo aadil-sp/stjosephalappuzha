@@ -7,9 +7,8 @@ device diagnostics, cutoff adjustments, and corner motor control.
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
-from hardware_manager import hardware, CROP_PRESETS
+from hardware_manager import hardware, CROP_PRESETS, run_privileged
 import wifi_manager
-import os
 
 web_app = FastAPI(title="Blynk IoT Agriculture Interactive Hub")
 
@@ -950,11 +949,11 @@ def get_system_diagnostics():
 
 @web_app.post("/api/system/restart-gui")
 def api_restart_gui():
-    os.system("echo 123456 | sudo -S systemctl restart iot-dashboard.service &")
+    run_privileged(["systemctl", "restart", "iot-dashboard.service"])
     return JSONResponse({"status": "restarting"})
 
 
 @web_app.post("/api/system/reboot")
 def api_reboot_pi():
-    os.system("echo 123456 | sudo -S reboot &")
+    run_privileged(["reboot"])
     return JSONResponse({"status": "rebooting"})

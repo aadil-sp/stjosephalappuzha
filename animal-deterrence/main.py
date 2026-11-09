@@ -230,6 +230,9 @@ def main():
                 print("[Notice] No physical camera could be opened.")
                 synthetic_mode = True
                 source_label = "Simulation Mode"
+    elif args.source.lower() == "sim":
+        synthetic_mode = True
+        source_label = "Simulation Mode"
     else:
         source_path = Path(args.source)
         if not source_path.exists():

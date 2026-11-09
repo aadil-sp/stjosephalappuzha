@@ -29,7 +29,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QFont, QColor
 
-from hardware_manager import hardware, CROP_PRESETS
+from hardware_manager import hardware, CROP_PRESETS, run_privileged
 from touch_driver import HardwareTouchInjector, inject_qt_click
 from keyboard_dialog import get_text_input
 import wifi_manager
@@ -980,11 +980,11 @@ class IoTTouchDashboard(QMainWindow):
 
     def action_restart_gui(self):
         print("[System] Restarting dashboard application...")
-        os.system("echo 123456 | sudo -S systemctl restart iot-dashboard.service &")
+        run_privileged(["systemctl", "restart", "iot-dashboard.service"])
 
     def action_reboot_pi(self):
         print("[System] Rebooting Raspberry Pi...")
-        os.system("echo 123456 | sudo -S reboot &")
+        run_privileged(["reboot"])
 
     # --- TAB 4: HARDWARE & ARDUINO MEGA CONNECTIONS INFO ---
     def init_tab_info(self):

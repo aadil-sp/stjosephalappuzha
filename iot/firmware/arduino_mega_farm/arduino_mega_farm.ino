@@ -40,8 +40,9 @@ const int PIN_HEARTBEAT_LED = 13;
 #endif
 
 // --- SYSTEM STATE & THRESHOLDS ---
-float current_temperature = 28.0;
-float current_humidity    = 65.0;
+// NAN until the DHT returns a valid reading; sent to the Pi as JSON null
+float current_temperature = NAN;
+float current_humidity    = NAN;
 float current_soil        = 45.0;
 int   current_rain        = 0;
 int   current_light       = 70;
@@ -54,6 +55,8 @@ float stop_cutoff = 65.0; // Auto-stop pump when soil rises above this
 
 unsigned long last_telemetry_time = 0;
 unsigned long last_dht_read_time = 0;
+unsigned long last_dht_ok_time = 0;
+const unsigned long DHT_STALE_MS = 10000; // Report null after 10s without a good read
 String serial_buffer = "";
 
 // --- BIT-BANG DHT11 / DHT22 SENSOR DRIVER ---
@@ -148,6 +151,10 @@ void sample_sensors() {
     if (read_dht(t, h)) {
       if (t >= 0 && t <= 60) current_temperature = t;
       if (h >= 10 && h <= 100) current_humidity = h;
+      last_dht_ok_time = millis();
+    } else if (millis() - last_dht_ok_time > DHT_STALE_MS) {
+      current_temperature = NAN;
+      current_humidity = NAN;
     }
     last_dht_read_time = millis();
   }
@@ -207,9 +214,9 @@ void process_command(String cmd) {
 // --- TELEMETRY BROADCAST ---
 void send_telemetry() {
   Serial.print(F("{\"temp\":"));
-  Serial.print(current_temperature, 1);
+  if (isnan(current_temperature)) Serial.print(F("null")); else Serial.print(current_temperature, 1);
   Serial.print(F(",\"humidity\":"));
-  Serial.print(current_humidity, 1);
+  if (isnan(current_humidity)) Serial.print(F("null")); else Serial.print(current_humidity, 1);
   Serial.print(F(",\"soil\":"));
   Serial.print(current_soil, 1);
   Serial.print(F(",\"rain\":"));

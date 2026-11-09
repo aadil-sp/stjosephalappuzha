@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0f1410">
+<title>Smart Farm</title>
+<style>
+  :root {
+    --bg: #0f1410; --surface: #172019; --raised: #1f2a21; --line: #2c3a2e;
+    --text: #eef3ea; --muted: #93a394; --dim: #5f6e60;
+    --leaf: #8fd16a; --leaf-bg: #22331c; --water: #4cb8e0; --sun: #f4b04a;
+    --tank: #3fc1b0; --light: #f5d76e; --alert: #ef5d50; --alert-bg: #3a1a17; --sim-bg: #3a2c12;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, "DejaVu Sans", sans-serif;
+    min-height: 100vh; padding: 16px;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; display: grid; gap: 14px; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  .ic { width: 22px; height: 22px; flex: none; stroke: currentColor; stroke-width: 2;
+        stroke-linecap: round; stroke-linejoin: round; fill: none; }
+  .ic.sm { width: 18px; height: 18px; }
+  .ic.lg { width: 28px; height: 28px; }
+
+  /* Header */
+  header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .brand { display: flex; align-items: center; gap: 10px; margin-right: auto; }
+  .brand .ic { color: var(--leaf); width: 30px; height: 30px; }
+  .brand h1 { font-size: 22px; letter-spacing: -0.01em; }
+  .brand small { display: block; color: var(--muted); font-size: 12px; font-weight: 500; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px;
+          font-size: 13px; font-weight: 700; letter-spacing: 0.04em; }
+  .pill::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+  .pill.online { color: var(--leaf); background: var(--leaf-bg); }
+  .pill.sim { color: var(--sun); background: var(--sim-bg); }
+  .pill.offline { color: var(--alert); background: var(--alert-bg); }
+  .clock { color: var(--muted); font-weight: 700; font-variant-numeric: tabular-nums; }
+
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+  .caps { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .row { display: flex; align-items: center; gap: 8px; }
+
+  /* Overview */
+  .overview { display: grid; grid-template-columns: 300px 1fr; gap: 14px; }
+  .gauge-card { padding: 14px; display: flex; flex-direction: column; gap: 6px; }
+  .gauge-card .row .ic { color: var(--leaf); }
+  #gauge { width: 100%; max-width: 260px; margin: 0 auto; display: block; }
+  .crop-chip { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 10px;
+               background: transparent; border: 1px solid var(--line); border-radius: 10px; color: var(--muted); font-weight: 700; }
+  .crop-chip:hover { border-color: var(--leaf); color: var(--text); }
+  .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .tile { padding: 14px; display: flex; flex-direction: column; gap: 4px; min-height: 120px; }
+  .tile .val { font-size: 34px; font-weight: 800; letter-spacing: -0.02em; margin-top: auto;
+               font-variant-numeric: tabular-nums; }
+  .tile .val small { font-size: 15px; color: var(--muted); font-weight: 700; margin-left: 3px; }
+  .tile .val.none { color: var(--dim); }
+  .tile .sub { font-size: 13px; color: var(--muted); }
+  .tile .sub.warn { color: var(--alert); }
+
+  /* Controls */
+  .controls { display: grid; grid-template-columns: 300px 1fr; gap: 14px; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px;
+         padding: 0 16px; border-radius: 12px; border: 1px solid var(--line); background: var(--raised);
+         font-weight: 700; font-size: 15px; transition: background .15s, border-color .15s, color .15s; }
+  .btn:hover { border-color: var(--dim); }
+  .btn:active { transform: translateY(1px); }
+  .btn:disabled { opacity: .45; cursor: default; }
+  .btn.primary { background: var(--leaf); color: var(--bg); border-color: var(--leaf); }
+  .btn.selected { background: var(--leaf-bg); color: var(--leaf); border: 2px solid var(--leaf); }
+  .btn.danger { background: var(--alert-bg); color: var(--alert); border-color: #6b2a24; }
+  .btn.icon-only { padding: 0; width: 48px; }
+  #pump { min-height: 64px; font-size: 18px; letter-spacing: .02em; }
+  #pump .ic { width: 28px; height: 28px; }
+  .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .seg .btn { min-height: 64px; }
+
+  /* Settings panel */
+  .panel { overflow: hidden; }
+  .tabs { display: flex; gap: 4px; padding: 8px; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab { display: inline-flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 10px;
+         border: 1px solid transparent; background: transparent; color: var(--muted); font-weight: 700; white-space: nowrap; }
+  .tab:hover { color: var(--text); }
+  .tab[aria-selected="true"] { background: var(--leaf-bg); color: var(--leaf); border-color: var(--leaf); }
+  .tabpanel { padding: 16px; }
+  .tabpanel[hidden] { display: none; }
+  .hint { color: var(--muted); font-size: 13px; margin-bottom: 12px; }
+
+  .crops { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+  .crop { display: flex; align-items: center; gap: 12px; padding: 12px 14px; text-align: left;
+          background: var(--raised); border: 1px solid var(--line); border-radius: 12px; }
+  .crop:hover { border-color: var(--dim); }
+  .crop b { display: block; font-size: 15px; }
+  .crop span { font-size: 13px; color: var(--muted); }
+  .crop[aria-pressed="true"] { background: var(--leaf-bg); border: 2px solid var(--leaf); }
+  .crop .ic { width: 28px; height: 28px; }
+
+  .steppers { display: grid; gap: 10px; }
+  .stepper { display: flex; align-items: center; gap: 12px; padding: 10px 12px; background: var(--raised);
+             border: 1px solid var(--line); border-radius: 12px; }
+  .stepper .lbl { flex: 1; min-width: 0; }
+  .stepper .lbl span { display: block; font-size: 13px; color: var(--muted); font-weight: 600; }
+  .stepper .lbl b { font-size: 24px; font-variant-numeric: tabular-nums; }
+  .stepper input[type=range] { flex: 1; min-width: 80px; accent-color: var(--leaf); height: 28px; }
+  .num { width: 96px; min-height: 44px; padding: 0 10px; border-radius: 10px; border: 1px solid var(--line);
+         background: var(--bg); color: var(--text); font: inherit; font-weight: 700; font-size: 18px; text-align: right; }
+  .num:focus { outline: 2px solid var(--leaf); outline-offset: 1px; }
+  .band { margin-top: 14px; }
+  .band-track { position: relative; height: 12px; border-radius: 6px; background: var(--raised); margin: 10px 0 6px; }
+  .band-fill { position: absolute; top: 0; bottom: 0; background: var(--leaf-bg); }
+  .band-mark { position: absolute; top: -4px; width: 4px; height: 20px; border-radius: 2px; transform: translateX(-2px); }
+  .band-soil { position: absolute; top: -2px; width: 16px; height: 16px; border-radius: 50%; background: var(--text);
+               transform: translateX(-8px); border: 3px solid var(--bg); }
+  .band-legend { display: flex; justify-content: space-between; font-size: 12px; color: var(--dim); }
+
+  .wifi-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .wifi-head .now { flex: 1; font-weight: 700; color: var(--leaf); }
+  .wifi-list { display: grid; gap: 8px; }
+  .net { display: flex; align-items: center; gap: 10px; padding: 12px 14px; text-align: left;
+         background: var(--raised); border: 1px solid var(--line); border-radius: 12px; }
+  .net .name { flex: 1; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .net .sig { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+  .net.active { border-color: var(--leaf); color: var(--leaf); }
+  .connect { display: none; gap: 10px; margin-top: 12px; flex-wrap: wrap; align-items: center; }
+  .connect.open { display: flex; }
+  .connect input { flex: 1; min-width: 180px; min-height: 48px; padding: 0 14px; border-radius: 12px;
+                   border: 1px solid var(--line); background: var(--bg); color: var(--text); font: inherit; }
+  .connect input:focus { outline: 2px solid var(--leaf); outline-offset: 1px; }
+  .msg { margin-top: 10px; font-size: 14px; font-weight: 600; min-height: 1.4em; }
+
+  .facts { display: grid; grid-template-columns: auto auto 1fr; gap: 10px 12px; align-items: center; margin-bottom: 16px; }
+  .facts .ic { color: var(--muted); }
+  .facts span { color: var(--muted); }
+  .facts b { font-variant-numeric: tabular-nums; }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+  .pins { display: grid; grid-template-columns: auto 1fr auto; gap: 10px 12px; align-items: center; }
+  .pins b { color: var(--leaf); font-family: ui-monospace, "DejaVu Sans Mono", monospace; }
+  .note { margin-top: 14px; color: var(--muted); font-size: 13px; }
+
+  @media (max-width: 760px) {
+    body { padding: 12px; }
+    .overview, .controls { grid-template-columns: 1fr; }
+    .tile .val { font-size: 28px; }
+    .tile { min-height: 104px; }
+    .brand small { display: none; }
+  }
+  @media (max-width: 380px) {
+    .tiles { gap: 10px; }
+    .tile { padding: 12px; }
+  }
+</style>
+</head>
+<body>
+<!--ICONS-->
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <svg class="ic"><use href="#i-leaf"/></svg>
+      <div><h1>Smart Farm</h1><small>St. Joseph's Alappuzha · Irrigation controller</small></div>
+    </div>
+    <span id="status" class="pill offline">OFFLINE</span>
+    <span id="clock" class="clock">--:--</span>
+  </header>
+
+  <div class="overview">
+    <section class="card gauge-card" aria-label="Soil moisture">
+      <div class="row"><svg class="ic sm"><use href="#i-sprout"/></svg><span class="caps">Soil moisture</span></div>
+      <svg id="gauge" viewBox="0 0 200 172" role="img" aria-label="Soil moisture gauge">
+        <path id="g-track" fill="none" stroke="var(--raised)" stroke-width="14" stroke-linecap="round"/>
+        <path id="g-value" fill="none" stroke="var(--leaf)" stroke-width="14" stroke-linecap="round" pathLength="100"/>
+        <line id="g-dry-halo" stroke="var(--surface)" stroke-width="9" stroke-linecap="round"/>
+        <line id="g-stop-halo" stroke="var(--surface)" stroke-width="9" stroke-linecap="round"/>
+        <line id="g-dry" stroke="var(--sun)" stroke-width="4" stroke-linecap="round"/>
+        <line id="g-stop" stroke="var(--water)" stroke-width="4" stroke-linecap="round"/>
+        <text id="g-num" x="100" y="112" text-anchor="middle" fill="var(--text)" font-size="46" font-weight="800">--</text>
+        <text id="g-cap" x="100" y="150" text-anchor="middle" fill="var(--dim)" font-size="16" font-weight="700">No signal</text>
+      </svg>
+      <button class="crop-chip" id="crop-chip" onclick="openTab('crops', true)">
+        <svg class="ic sm"><use href="#i-sprout"/></svg><span id="crop-text">--</span>
+      </button>
+    </section>
+
+    <div class="tiles">
+      <section class="card tile" id="t-temp">
+        <div class="row"><svg class="ic sm" style="color:var(--sun)"><use href="#i-thermo"/></svg><span class="caps">Temperature</span></div>
+        <div class="val none">--</div><div class="sub">--</div>
+      </section>
+      <section class="card tile" id="t-hum">
+        <div class="row"><svg class="ic sm" style="color:var(--water)"><use href="#i-drop"/></svg><span class="caps">Humidity</span></div>
+        <div class="val none">--</div><div class="sub">--</div>
+      </section>
+      <section class="card tile" id="t-tank">
+        <div class="row"><svg class="ic sm" style="color:var(--tank)"><use href="#i-tank"/></svg><span class="caps">Water tank</span></div>
+        <div class="val none">--</div><div class="sub">--</div>
+      </section>
+      <section class="card tile" id="t-weather">
+        <div class="row"><svg class="ic sm" id="w-icon" style="color:var(--light)"><use href="#i-sun"/></svg><span class="caps">Weather</span></div>
+        <div class="val none">--</div><div class="sub">--</div>
+      </section>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="btn" id="pump" onclick="post('/api/pump/toggle')">
+      <svg class="ic"><use href="#i-power"/></svg><span>PUMP OFF</span>
+    </button>
+    <div class="seg" role="group" aria-label="Irrigation mode">
+      <button class="btn" id="mode-auto" onclick="setMode('AUTO')"><svg class="ic"><use href="#i-auto"/></svg>AUTO</button>
+      <button class="btn" id="mode-manual" onclick="setMode('MANUAL')"><svg class="ic"><use href="#i-hand"/></svg>MANUAL</button>
+    </div>
+  </div>
+
+  <section class="card panel" id="settings">
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" data-tab="crops"><svg class="ic sm"><use href="#i-sprout"/></svg>Crops</button>
+      <button class="tab" role="tab" data-tab="cutoffs"><svg class="ic sm"><use href="#i-gauge"/></svg>Cutoffs</button>
+      <button class="tab" role="tab" data-tab="tank"><svg class="ic sm"><use href="#i-tank"/></svg>Tank</button>
+      <button class="tab" role="tab" data-tab="sim"><svg class="ic sm"><use href="#i-sliders"/></svg>Simulator</button>
+      <button class="tab" role="tab" data-tab="wifi"><svg class="ic sm"><use href="#i-wifi"/></svg>Wi-Fi</button>
+      <button class="tab" role="tab" data-tab="device"><svg class="ic sm"><use href="#i-chip"/></svg>Device</button>
+      <button class="tab" role="tab" data-tab="wiring"><svg class="ic sm"><use href="#i-plug"/></svg>Wiring</button>
+    </div>
+
+    <div class="tabpanel" id="p-crops" role="tabpanel">
+      <p class="hint">Pick what is planted. The pump cutoffs follow the crop's moisture range.</p>
+      <div class="crops" id="crops"></div>
+    </div>
+
+    <div class="tabpanel" id="p-cutoffs" role="tabpanel" hidden>
+      <div class="steppers">
+        <div class="stepper">
+          <svg class="ic" style="color:var(--sun)"><use href="#i-power"/></svg>
+          <div class="lbl"><span>Pump starts when soil is below</span><b id="dry-val">--</b></div>
+          <button class="btn icon-only" onclick="stepCutoff('dry',-5)" aria-label="Lower start cutoff"><svg class="ic"><use href="#i-minus"/></svg></button>
+          <button class="btn icon-only" onclick="stepCutoff('dry',5)" aria-label="Raise start cutoff"><svg class="ic"><use href="#i-plus"/></svg></button>
+        </div>
+        <div class="stepper">
+          <svg class="ic" style="color:var(--water)"><use href="#i-drop"/></svg>
+          <div class="lbl"><span>Pump stops when soil reaches</span><b id="stop-val">--</b></div>
+          <button class="btn icon-only" onclick="stepCutoff('stop',-5)" aria-label="Lower stop cutoff"><svg class="ic"><use href="#i-minus"/></svg></button>
+          <button class="btn icon-only" onclick="stepCutoff('stop',5)" aria-label="Raise stop cutoff"><svg class="ic"><use href="#i-plus"/></svg></button>
+        </div>
+      </div>
+      <div class="band">
+        <span class="caps">Watering band</span>
+        <div class="band-track">
+          <div class="band-fill" id="band-fill"></div>
+          <div class="band-mark" id="band-dry" style="background:var(--sun)"></div>
+          <div class="band-mark" id="band-stop" style="background:var(--water)"></div>
+          <div class="band-soil" id="band-soil" hidden></div>
+        </div>
+        <div class="band-legend"><span>0%</span><span id="band-now"></span><span>100%</span></div>
+      </div>
+    </div>
+
+    <div class="tabpanel" id="p-tank" role="tabpanel" hidden>
+      <p class="hint">The ultrasonic sensor sits at the top of the tank and measures the distance down to the water.
+        Set the tank height (sensor to floor) and the gap left when the tank is full.</p>
+      <div class="stepper" style="margin-bottom:12px">
+        <svg class="ic" style="color:var(--tank)"><use href="#i-tank"/></svg>
+        <div class="lbl"><span>Now</span><b id="tank-now">--</b></div>
+        <span class="hint" id="tank-dist" style="margin:0"></span>
+      </div>
+      <form class="steppers" id="tank-form" onsubmit="saveTank(event)">
+        <label class="stepper">
+          <svg class="ic" style="color:var(--tank)"><use href="#i-tank"/></svg>
+          <div class="lbl"><span>Tank height — sensor to floor (cm)</span></div>
+          <input class="num" type="number" id="tank-height" min="7" max="450" step="1" required>
+        </label>
+        <label class="stepper">
+          <svg class="ic" style="color:var(--water)"><use href="#i-drop"/></svg>
+          <div class="lbl"><span>Gap when full — sensor to water (cm)</span></div>
+          <input class="num" type="number" id="tank-gap" min="2" max="400" step="1" required>
+        </label>
+        <div class="actions">
+          <button class="btn primary" type="submit"><svg class="ic"><use href="#i-check"/></svg>Save</button>
+          <button class="btn" type="button" onclick="markTank('empty')">Tank is empty now</button>
+          <button class="btn" type="button" onclick="markTank('full')">Tank is full now</button>
+        </div>
+      </form>
+      <div class="msg" id="tank-msg"></div>
+    </div>
+
+    <div class="tabpanel" id="p-sim" role="tabpanel" hidden>
+      <p class="hint">Fake sensor values for testing. While on, the pump follows the simulated soil value.</p>
+      <button class="btn" id="sim-toggle" onclick="post('/api/simulator/toggle')" style="width:100%;margin-bottom:12px">
+        <svg class="ic"><use href="#i-sliders"/></svg><span>Simulator OFF</span>
+      </button>
+      <div class="steppers">
+        <label class="stepper"><svg class="ic" style="color:var(--sun)"><use href="#i-thermo"/></svg>
+          <div class="lbl" style="flex:none;width:120px"><span>Temperature</span><b id="sim-t-val">--</b></div>
+          <input type="range" id="sim-t" min="0" max="50" step="1"></label>
+        <label class="stepper"><svg class="ic" style="color:var(--water)"><use href="#i-drop"/></svg>
+          <div class="lbl" style="flex:none;width:120px"><span>Humidity</span><b id="sim-h-val">--</b></div>
+          <input type="range" id="sim-h" min="0" max="100" step="1"></label>
+        <label class="stepper"><svg class="ic" style="color:var(--leaf)"><use href="#i-sprout"/></svg>
+          <div class="lbl" style="flex:none;width:120px"><span>Soil moisture</span><b id="sim-s-val">--</b></div>
+          <input type="range" id="sim-s" min="0" max="100" step="1"></label>
+      </div>
+    </div>
+
+    <div class="tabpanel" id="p-wifi" role="tabpanel" hidden>
+      <div class="wifi-head">
+        <svg class="ic" style="color:var(--leaf)"><use href="#i-wifi"/></svg>
+        <span class="now" id="wifi-now">--</span>
+        <button class="btn icon-only" onclick="scanWifi()" aria-label="Rescan"><svg class="ic"><use href="#i-refresh"/></svg></button>
+      </div>
+      <div class="wifi-list" id="wifi-list"></div>
+      <form class="connect" id="wifi-form" onsubmit="connectWifi(event)">
+        <input type="password" id="wifi-pass" placeholder="Password" autocomplete="off">
+        <button class="btn primary" type="submit"><svg class="ic"><use href="#i-check"/></svg><span id="wifi-target">Connect</span></button>
+      </form>
+      <div class="msg" id="wifi-msg"></div>
+    </div>
+
+    <div class="tabpanel" id="p-device" role="tabpanel" hidden>
+      <div class="facts" id="facts"></div>
+      <div class="actions">
+        <button class="btn" onclick="restartApp()"><svg class="ic"><use href="#i-refresh"/></svg>Restart app</button>
+        <button class="btn danger" onclick="rebootPi()"><svg class="ic"><use href="#i-power"/></svg>Reboot Pi</button>
+      </div>
+      <div class="msg" id="device-msg"></div>
+    </div>
+
+    <div class="tabpanel" id="p-wiring" role="tabpanel" hidden>
+      <div class="pins" id="pins"></div>
+      <p class="note">Mega ↔ Pi over USB (/dev/ttyACM0 at 115200 baud). Relay COM goes to the pump supply +, NO to the pump +.
+        Join the pump supply GND to the Mega GND. Never power the pump from the Mega's 5V pin.</p>
+    </div>
+  </section>
+</div>
+
+<script>
+const CROP_COLORS = { tomato: '#ef6a5a', paddy: '#e9c46a', chilli: '#e4572e', potato: '#c89f6b',
+                      corn: '#f2c14e', arid: '#8fd16a', onion: '#c77dba', custom: '#93a394' };
+const $ = id => document.getElementById(id);
+const icon = (name, cls = 'ic', color) =>
+  `<svg class="${cls}"${color ? ` style="color:${color}"` : ''}><use href="#i-${name}"/></svg>`;
+let T = null;          // latest telemetry
+let crops = {};
+let wifiTarget = null;
+
+async function post(url, body) {
+  const opts = { method: 'POST' };
+  if (body) { opts.headers = { 'Content-Type': 'application/json' }; opts.body = JSON.stringify(body); }
+  const res = await fetch(url, opts);
+  refresh();
+  return res.ok ? res.json() : null;
+}
+
+/* ---------- gauge ---------- */
+const G = { cx: 100, cy: 98, r: 76, start: 210, sweep: 240 };
+function gPoint(frac, r = G.r) {
+  const a = (G.start - G.sweep * frac) * Math.PI / 180;
+  return [G.cx + r * Math.cos(a), G.cy - r * Math.sin(a)];
+}
+(function initGauge() {
+  const [x0, y0] = gPoint(0), [x1, y1] = gPoint(1);
+  const d = `M${x0} ${y0} A${G.r} ${G.r} 0 1 1 ${x1} ${y1}`;
+  $('g-track').setAttribute('d', d);
+  $('g-value').setAttribute('d', d);
+})();
+function placeTick(el, pct) {
+  const f = Math.max(0, Math.min(1, pct / 100));
+  const [a, b] = gPoint(f, G.r - 12), [c, d] = gPoint(f, G.r + 12);
+  el.setAttribute('x1', a); el.setAttribute('y1', b); el.setAttribute('x2', c); el.setAttribute('y2', d);
+}
+function soilState(soil, dry, stop) {
+  if (soil === null) return ['No signal', 'var(--dim)'];
+  if (soil < dry) return ['Too dry', 'var(--sun)'];
+  if (soil > stop) return ['Wet', 'var(--water)'];
+  return ['Good', 'var(--leaf)'];
+}
+
+/* ---------- tiles ---------- */
+function setTile(id, val, unit, sub, warn) {
+  const el = $(id);
+  const v = el.querySelector('.val'), s = el.querySelector('.sub');
+  if (val === null) { v.className = 'val none'; v.textContent = '--'; }
+  else { v.className = 'val'; v.textContent = val; if (unit) { const u = document.createElement('small'); u.textContent = unit; v.appendChild(u); } }
+  s.textContent = sub;
+  s.className = 'sub' + (warn ? ' warn' : '');
+}
+
+function render(t) {
+  T = t;
+  const st = $('status');
+  if (t.simulator_mode) { st.className = 'pill sim'; st.textContent = 'SIMULATOR'; }
+  else if (t.hardware_connected) { st.className = 'pill online'; st.textContent = 'ONLINE'; }
+  else { st.className = 'pill offline'; st.textContent = 'OFFLINE'; }
+  $('clock').textContent = t.timestamp.slice(0, 5);
+
+  const soil = t.soil_moisture, dry = t.dry_cutoff, stop = t.stop_cutoff;
+  const [cap, col] = soilState(soil, dry, stop);
+  $('g-value').setAttribute('stroke-dasharray', `${soil === null ? 0 : Math.max(0, Math.min(100, soil))} 100`);
+  $('g-value').setAttribute('stroke', col);
+  $('g-num').textContent = soil === null ? '--' : `${Math.round(soil)}%`;
+  $('g-cap').textContent = cap; $('g-cap').setAttribute('fill', col);
+  placeTick($('g-dry'), dry); placeTick($('g-stop'), stop);
+  placeTick($('g-dry-halo'), dry); placeTick($('g-stop-halo'), stop);
+  const cropName = t.selected_crop === 'custom' ? 'Custom' : t.crop_name.split(' / ')[0];
+  $('crop-text').textContent = `${cropName} · ${Math.round(dry)}–${Math.round(stop)}%`;
+  $('crop-chip').querySelector('.ic').style.color = CROP_COLORS[t.selected_crop] || 'var(--muted)';
+
+  const live = t.hardware_connected && !t.simulator_mode;
+  const noSensor = live ? 'Sensor not responding' : 'Arduino offline';
+  setTile('t-temp', t.temperature_c === null ? null : t.temperature_c.toFixed(1), '°C',
+          t.temperature_c === null ? noSensor : `${Math.round(t.temperature_f)} °F`, t.temperature_c === null && live);
+  setTile('t-hum', t.humidity === null ? null : Math.round(t.humidity), '%',
+          t.humidity === null ? noSensor : 'Air humidity', t.humidity === null && live);
+  const offSub = t.simulator_mode ? 'Live sensors only' : 'Arduino offline';
+  if (t.water_level === null || t.water_level === undefined) setTile('t-tank', null, '', offSub);
+  else setTile('t-tank', t.water_level, '%', t.water_level < 20 ? 'Low — refill tank' : `${Math.round(t.water_cm)} cm to water`, t.water_level < 20);
+  if ((t.water_level === null || t.water_level === undefined) && live) setTile('t-tank', null, '', 'No echo from sensor', true);
+
+  $('tank-now').textContent = t.water_level === null || t.water_level === undefined ? '--' : `${t.water_level} % full`;
+  $('tank-dist').textContent = t.water_cm === null || t.water_cm === undefined
+    ? (live ? 'No sensor reading' : 'Offline') : `${Math.round(t.water_cm)} cm to water`;
+  const ae = document.activeElement;
+  if (ae !== $('tank-height')) $('tank-height').value = Math.round(t.tank_empty_cm);
+  if (ae !== $('tank-gap')) $('tank-gap').value = Math.round(t.tank_full_cm);
+  const wIcon = $('w-icon');
+  if (t.rain === null || t.rain === undefined) {
+    setTile('t-weather', null, '', offSub);
+    wIcon.innerHTML = '<use href="#i-sun"/>'; wIcon.style.color = 'var(--light)';
+  } else {
+    setTile('t-weather', t.rain ? 'Rain' : 'Dry', '', `Light ${t.light}%`);
+    wIcon.innerHTML = `<use href="#i-${t.rain ? 'rain' : 'sun'}"/>`;
+    wIcon.style.color = t.rain ? 'var(--water)' : 'var(--light)';
+  }
+
+  const pump = $('pump');
+  pump.className = 'btn' + (t.pump_on ? ' primary' : '');
+  pump.querySelector('span').textContent = t.pump_on ? 'PUMP ON' : 'PUMP OFF';
+  $('mode-auto').className = 'btn' + (t.pump_mode === 'AUTO' ? ' selected' : '');
+  $('mode-manual').className = 'btn' + (t.pump_mode === 'MANUAL' ? ' selected' : '');
+
+  document.querySelectorAll('.crop').forEach(b => b.setAttribute('aria-pressed', b.dataset.key === t.selected_crop));
+
+  $('dry-val').textContent = `${Math.round(dry)} %`;
+  $('stop-val').textContent = `${Math.round(stop)} %`;
+  $('band-fill').style.left = dry + '%'; $('band-fill').style.width = (stop - dry) + '%';
+  $('band-dry').style.left = dry + '%'; $('band-stop').style.left = stop + '%';
+  $('band-soil').hidden = soil === null;
+  if (soil !== null) $('band-soil').style.left = Math.max(0, Math.min(100, soil)) + '%';
+  $('band-now').textContent = soil === null ? '' : `soil now ${Math.round(soil)}%`;
+
+  const simBtn = $('sim-toggle');
+  simBtn.className = 'btn' + (t.simulator_mode ? ' primary' : '');
+  simBtn.querySelector('span').textContent = t.simulator_mode ? 'Simulator ON' : 'Simulator OFF';
+  syncSlider('sim-t', t.sim_temp, '°C'); syncSlider('sim-h', t.sim_humidity, '%'); syncSlider('sim-s', t.sim_soil_moisture, '%');
+}
+
+async function refresh() {
+  try {
+    const res = await fetch('/api/telemetry');
+    render(await res.json());
+  } catch (e) {
+    const st = $('status'); st.className = 'pill offline'; st.textContent = 'NO LINK';
+  }
+}
+
+/* ---------- actions ---------- */
+function setMode(mode) { if (T && T.pump_mode !== mode) post('/api/pump/mode'); }
+
+function stepCutoff(which, delta) {
+  if (!T) return;
+  let dry = T.dry_cutoff, stop = T.stop_cutoff;
+  if (which === 'dry') dry = Math.max(5, Math.min(stop - 5, dry + delta));
+  else stop = Math.max(dry + 5, Math.min(95, stop + delta));
+  post('/api/settings/cutoffs', { dry_cutoff: dry, stop_cutoff: stop });
+}
+
+async function loadCrops() {
+  crops = await (await fetch('/api/crops')).json();
+  const box = $('crops'); box.innerHTML = '';
+  for (const [key, c] of Object.entries(crops)) {
+    const b = document.createElement('button');
+    b.className = 'crop'; b.dataset.key = key;
+    b.innerHTML = icon('sprout', 'ic', CROP_COLORS[key]) + '<div><b></b><span></span></div>';
+    b.querySelector('b').textContent = c.name.split(' / ')[0];
+    b.querySelector('span').textContent = key === 'custom' ? 'Your own cutoffs' : `${c.dry_cutoff}–${c.stop_cutoff}% moisture`;
+    b.onclick = () => post('/api/crops/select', { crop_key: key });
+    box.appendChild(b);
+  }
+  if (T) render(T);
+}
+
+/* simulator sliders: don't fight the user while dragging */
+const dragging = new Set();
+let simTimer = null;
+function syncSlider(id, value, unit) {
+  $(id + '-val').textContent = `${Math.round(value)} ${unit}`;
+  if (!dragging.has(id)) $(id).value = value;
+}
+['sim-t', 'sim-h', 'sim-s'].forEach(id => {
+  const el = $(id), unit = id === 'sim-t' ? '°C' : '%';
+  el.addEventListener('pointerdown', () => dragging.add(id));
+  el.addEventListener('pointerup', () => setTimeout(() => dragging.delete(id), 600));
+  el.addEventListener('input', () => {
+    dragging.add(id);
+    $(id + '-val').textContent = `${el.value} ${unit}`;
+    clearTimeout(simTimer);
+    simTimer = setTimeout(() => {
+      post('/api/simulator/set', { temperature: +$('sim-t').value, humidity: +$('sim-h').value, soil_moisture: +$('sim-s').value });
+      setTimeout(() => dragging.delete(id), 600);
+    }, 200);
+  });
+});
+
+/* tank */
+async function saveTank(e) {
+  e.preventDefault();
+  const res = await post('/api/tank/calibrate', { height_cm: +$('tank-height').value, full_gap_cm: +$('tank-gap').value });
+  $('tank-msg').textContent = res ? `Saved: height ${res.height_cm} cm, gap ${res.full_gap_cm} cm` : 'Could not save';
+  $('tank-msg').style.color = res ? 'var(--leaf)' : 'var(--alert)';
+  document.activeElement.blur();
+}
+async function markTank(which) {
+  const res = await fetch('/api/tank/mark', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                              body: JSON.stringify({ which }) });
+  const data = await res.json();
+  $('tank-msg').textContent = res.ok ? `Saved current distance as ${which}.` : data.message;
+  $('tank-msg').style.color = res.ok ? 'var(--leaf)' : 'var(--alert)';
+  refresh();
+}
+
+/* wi-fi */
+async function scanWifi() {
+  const list = $('wifi-list');
+  $('wifi-msg').textContent = 'Scanning…'; $('wifi-msg').style.color = 'var(--muted)';
+  const data = await (await fetch('/api/wifi/scan')).json();
+  $('wifi-msg').textContent = '';
+  $('wifi-now').textContent = data.current.connected ? `${data.current.ssid} · ${data.current.signal}%` : 'Not connected';
+  $('wifi-now').style.color = data.current.connected ? 'var(--leaf)' : 'var(--alert)';
+  list.innerHTML = '';
+  if (!data.networks.length) { $('wifi-msg').textContent = 'No networks found'; return; }
+  for (const n of data.networks) {
+    const b = document.createElement('button');
+    b.className = 'net' + (n.active ? ' active' : '');
+    const strength = n.signal >= 60 ? 'var(--leaf)' : n.signal >= 30 ? 'var(--sun)' : 'var(--alert)';
+    const secured = n.security && n.security !== '--';
+    b.innerHTML = icon('wifi', 'ic', strength) + '<span class="name"></span>' +
+                  (secured ? icon('lock', 'ic sm', 'var(--muted)') : '') + '<span class="sig"></span>';
+    b.querySelector('.name').textContent = n.ssid;      // SSIDs are untrusted: text only
+    b.querySelector('.sig').textContent = `${n.signal}%`;
+    b.onclick = () => {
+      wifiTarget = n.ssid;
+      $('wifi-target').textContent = `Connect to ${n.ssid}`;
+      $('wifi-form').classList.add('open');
+      $('wifi-pass').value = ''; $('wifi-pass').focus();
+    };
+    list.appendChild(b);
+  }
+}
+async function connectWifi(e) {
+  e.preventDefault();
+  if (!wifiTarget) return;
+  $('wifi-msg').textContent = `Connecting to ${wifiTarget}…`; $('wifi-msg').style.color = 'var(--sun)';
+  const res = await post('/api/wifi/connect', { ssid: wifiTarget, password: $('wifi-pass').value });
+  const ok = res && res.success;
+  $('wifi-msg').textContent = ok ? `Connected to ${wifiTarget}` : `Failed: ${(res && res.message) || 'error'}`;
+  $('wifi-msg').style.color = ok ? 'var(--leaf)' : 'var(--alert)';
+  if (ok) { $('wifi-form').classList.remove('open'); scanWifi(); }
+}
+
+/* device */
+async function loadDevice() {
+  const d = await (await fetch('/api/system/diagnostics')).json();
+  const rows = [['wifi', 'Address', d.ip_address], ['thermo', 'CPU temp', d.cpu_temp], ['chip', 'Memory', d.ram_usage],
+                ['disk', 'Storage', d.disk_usage], ['clock', 'Uptime', d.uptime],
+                ['plug', 'Arduino', T && T.hardware_connected ? 'Connected' : 'Not connected']];
+  const box = $('facts'); box.innerHTML = '';
+  for (const [ic, k, v] of rows) {
+    box.insertAdjacentHTML('beforeend', icon(ic));
+    const s = document.createElement('span'); s.textContent = k; box.appendChild(s);
+    const b = document.createElement('b'); b.textContent = v ?? 'N/A'; box.appendChild(b);
+  }
+}
+async function restartApp() {
+  if (!confirm('Restart the dashboard app on the Pi?')) return;
+  await fetch('/api/system/restart-gui', { method: 'POST' });
+  $('device-msg').textContent = 'Restarting… the page will reconnect in a few seconds.';
+}
+async function rebootPi() {
+  if (!confirm('Reboot the Raspberry Pi? Irrigation keeps running on the Arduino.')) return;
+  await fetch('/api/system/reboot', { method: 'POST' });
+  $('device-msg').textContent = 'Rebooting… this takes about a minute.';
+}
+
+/* wiring */
+(function renderPins() {
+  const pins = [['sprout', 'var(--leaf)', 'Soil moisture sensor', 'A0'], ['rain', 'var(--water)', 'Rain sensor', 'A1'],
+                ['sun', 'var(--light)', 'Light sensor (LDR)', 'A2'], ['tank', 'var(--tank)', 'Ultrasonic tank sensor TRIG', 'D9'], ['tank', 'var(--tank)', 'Ultrasonic tank sensor ECHO', 'D10'],
+                ['thermo', 'var(--sun)', 'DHT11 / DHT22 temp & humidity', 'D2'],
+                ['power', 'var(--alert)', 'Pump relay (active LOW)', 'D8'], ['chip', 'var(--muted)', 'Status LED', 'D13']];
+  $('pins').innerHTML = pins.map(([ic, c, n, p]) => `${icon(ic, 'ic', c)}<span>${n}</span><b>${p}</b>`).join('');
+})();
+
+/* tabs */
+function openTab(name, scroll) {
+  document.querySelectorAll('.tab').forEach(t => t.setAttribute('aria-selected', t.dataset.tab === name));
+  document.querySelectorAll('.tabpanel').forEach(p => p.hidden = p.id !== 'p-' + name);
+  try { localStorage.setItem('tab', name); } catch (e) {}
+  if (name === 'wifi' && !$('wifi-list').children.length) scanWifi();
+  if (name === 'device') loadDevice();
+  if (scroll) $('settings').scrollIntoView({ behavior: 'smooth' });
+}
+document.querySelectorAll('.tab').forEach(t => t.onclick = () => openTab(t.dataset.tab));
+let startTab = 'crops';
+try { startTab = localStorage.getItem('tab') || 'crops'; } catch (e) {}
+openTab(startTab);
+
+loadCrops();
+refresh();
+setInterval(refresh, 1000);
+</script>
+</body>
+</html>

@@ -40,36 +40,20 @@ cd /Users/aadilsp/Desktop/Antigravity/stjosephalappuzha/iot
 
 ---
 
-## Interactive Device & Blynk Dashboard Features
+## Touchscreen & Web Dashboard
 
-The dashboard runs full-screen on the 3.5" (480x320) LCD touchscreen (`/dev/fb1`) and over HTTP at `http://10.180.5.188:8000`:
+The same dashboard runs full-screen on the 3.5" (480x320) LCD (`/dev/fb1`, `dashboard_app.py`) and in the browser at `http://<pi-ip>:8000` (`dashboard/index.html`). Both use one dark "field" theme and the shared vector icon set in `icons.py` (drawn with QPainter on the Pi, inline SVG in the browser).
 
-1. **Blynk-Style UI**:
-   - Real-time gauge tiles for Temperature, Humidity, and Soil Moisture.
-   - Active Crop Badge (e.g. `🍅 Tomato (35%-65%)`).
-   - Compact **Motor Relay Toggle Button** positioned in the bottom-right corner.
-   - Status indicators and live clock.
+1. **Home**: soil moisture gauge with the start (amber) and stop (blue) cutoff markers, tiles for temperature, humidity, water tank (ultrasonic) and weather (rain + light), a large **PUMP** button and an **AUTO / MANUAL** switch.
+2. **Crops**: Tomato, Paddy, Chilli, Potato, Corn, Cactus, Onion or Custom. Picking a crop sets the cutoffs and sends them to the Arduino. How to grow, water, feed and protect each crop: [**Crop Care Guide**](docs/CROP_CARE_GUIDE.md).
+3. **Cutoffs**: +/- 5% steppers for the start and stop moisture, plus a watering-band bar showing the current soil reading. Saved to `config/irrigation_settings.json`.
+4. **Tank**: ultrasonic water level (HC-SR04 / JSN-SR04T on Mega D9/D10). Set the **tank height** (sensor to floor) and the **gap when full**, or tap **Empty now / Full now** to capture them from the sensor. See [Arduino Mega Wiring](docs/ARDUINO_MEGA_WIRING.md#3-ultrasonic-water-tank-sensor).
+5. **Simulator**: fake temperature, humidity and soil values for testing; the pump follows the simulated soil value.
+6. **Wi-Fi**: scan via `nmcli`, paged network list, on-screen keyboard for passwords.
+7. **Device**: IP address, CPU temperature, memory, storage, uptime, Arduino link, **Restart app** and **Reboot Pi** (tap twice to confirm).
+8. **Wiring**: Arduino Mega pin map.
 
-2. **Crop Selection & Profiles (`🌾 Crops`)**:
-   - `🍅 Tomato / Vegetables` (35% - 65% moisture)
-   - `🌾 Paddy / Rice` (50% - 85% moisture)
-   - `🌶️ Chilli / Pepper` (25% - 55% moisture)
-   - `🥔 Potato / Tubers` (30% - 60% moisture)
-   - `🌽 Corn / Maize` (30% - 65% moisture)
-   - `🌵 Cactus / Arid` (15% - 35% moisture)
-   - `⚙️ Custom Profile` (user-defined cutoffs)
-
-3. **Cutoff Adjuster (`💧 Cutoffs`)**:
-   - Fine-tune low cutoff (motor start) and high cutoff (motor stop) in 5% increments.
-   - Automatically saved to `config/irrigation_settings.json`.
-
-4. **Wi-Fi Manager & On-Screen Keyboard (`📶 Wi-Fi`)**:
-   - Real-time network scanning via `nmcli`.
-   - Virtual on-screen touch keyboard (QWERTY + 123/Symbols + Shift + Backspace) for entering Wi-Fi passwords directly on the 3.5" LCD touchscreen without external peripherals.
-
-5. **Device Setup & Diagnostics (`⚙️ Device`)**:
-   - Real-time CPU Temperature, RAM usage, Storage, and Uptime.
-   - One-touch **Restart GUI** and **Reboot Pi** buttons.
+The resistive touch driver only reports taps, so the touchscreen UI avoids sliders and scrolling: every control is a button of at least ~34px.
 
 ---
 

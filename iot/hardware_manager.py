@@ -79,6 +79,13 @@ CROP_PRESETS = {
         "stop_cutoff": 35.0,
         "desc": "Low water requirement"
     },
+    "onion": {
+        "name": "Onion / Shallot",
+        "icon": "🧅",
+        "dry_cutoff": 40.0,
+        "stop_cutoff": 70.0,
+        "desc": "Shallow roots, light frequent watering"
+    },
     "custom": {
         "name": "Custom Profile",
         "icon": "⚙️",
@@ -105,7 +112,8 @@ class HardwareManager:
         self.real_soil_moisture = None
         self.real_rain = 0
         self.real_light = 0
-        self.real_water_level = 0
+        self.real_water_level = None   # % full, from the ultrasonic tank sensor
+        self.real_water_cm = None      # sensor-to-water distance (cm)
         self.last_hardware_packet_time = 0.0
 
         # Simulator Mode variables (controlled via UI sliders only when explicitly enabled)
@@ -121,6 +129,10 @@ class HardwareManager:
         self.selected_crop = "tomato"
         self.soil_dry_threshold = 35.0
         self.soil_target_moisture = 65.0
+
+        # Ultrasonic tank calibration: sensor-to-water distance when empty / full (cm)
+        self.tank_empty_cm = 100.0
+        self.tank_full_cm = 10.0
         self.load_settings()
 
         # Physical GPIO relay device
@@ -166,6 +178,8 @@ class HardwareManager:
                     self.sim_temp = float(data.get("sim_temp", 28.0))
                     self.sim_humidity = float(data.get("sim_humidity", 64.0))
                     self.sim_soil_moisture = float(data.get("sim_soil_moisture", 42.0))
+                    self.tank_empty_cm = float(data.get("tank_empty_cm", 100.0))
+                    self.tank_full_cm = float(data.get("tank_full_cm", 10.0))
                     print(f"[Hardware] Loaded settings: Simulator={self.simulator_mode}, Crop={self.selected_crop}, Dry Cutoff={self.soil_dry_threshold}%, Stop Cutoff={self.soil_target_moisture}%")
             except Exception as e:
                 print(f"[Hardware] Error loading settings file: {e}")
@@ -183,7 +197,9 @@ class HardwareManager:
                     "simulator_mode": self.simulator_mode,
                     "sim_temp": self.sim_temp,
                     "sim_humidity": self.sim_humidity,
-                    "sim_soil_moisture": self.sim_soil_moisture
+                    "sim_soil_moisture": self.sim_soil_moisture,
+                    "tank_empty_cm": self.tank_empty_cm,
+                    "tank_full_cm": self.tank_full_cm
                 }, f, indent=2)
             print(f"[Hardware] Saved settings to {SETTINGS_FILE}")
         except Exception as e:
@@ -200,6 +216,7 @@ class HardwareManager:
                     self.soil_target_moisture = preset["stop_cutoff"]
                 print(f"[Hardware] Crop changed to {preset['name']} (Cutoffs: {self.soil_dry_threshold}% - {self.soil_target_moisture}%)")
         self.save_settings()
+        self._send_serial_cmd(f"CUTOFF:{self.soil_dry_threshold}:{self.soil_target_moisture}\n")
 
     def set_cutoffs(self, dry_cutoff: float, stop_cutoff: float):
         """Updates cutoff percentages safely."""
@@ -233,6 +250,28 @@ class HardwareManager:
         self._send_serial_cmd(f"CUTOFF:{self.soil_dry_threshold}:{self.soil_target_moisture}\n")
         self._check_auto_irrigation()
         return cur
+
+    def set_tank_calibration(self, empty_cm: float = None, full_cm: float = None):
+        """Sets the ultrasonic distances (cm) that mean an empty and a full tank."""
+        with self.lock:
+            empty = self.tank_empty_cm if empty_cm is None else float(empty_cm)
+            full = self.tank_full_cm if full_cm is None else float(full_cm)
+            # Sensors cannot measure closer than ~2-20 cm (blind zone) or beyond ~4.5 m
+            full = max(2.0, min(400.0, full))
+            empty = max(full + 5.0, min(450.0, empty))
+            self.tank_empty_cm, self.tank_full_cm = round(empty, 1), round(full, 1)
+        self.save_settings()
+        self._send_serial_cmd(f"TANK:{self.tank_empty_cm}:{self.tank_full_cm}\n")
+        return self.tank_empty_cm, self.tank_full_cm
+
+    def mark_tank(self, which: str):
+        """Uses the current ultrasonic reading as the 'empty' or 'full' distance."""
+        cm = self.real_water_cm
+        if cm is None or not self.is_hardware_online:
+            return None
+        if which == "empty":
+            return self.set_tank_calibration(empty_cm=cm)
+        return self.set_tank_calibration(full_cm=cm)
 
     def set_simulator_mode(self, enabled: bool) -> bool:
         """Toggles manual simulator mode. When enabled, slider values override physical inputs."""
@@ -297,6 +336,7 @@ class HardwareManager:
         enabled when the Pi is in AUTO and not simulating; otherwise the Pi drives the pump."""
         arduino_auto = self.pump_mode == "AUTO" and not self.simulator_mode
         self._send_serial_cmd(f"CUTOFF:{self.soil_dry_threshold}:{self.soil_target_moisture}\n")
+        self._send_serial_cmd(f"TANK:{self.tank_empty_cm}:{self.tank_full_cm}\n")
         self._send_serial_cmd("MODE:AUTO\n" if arduino_auto else "MODE:MANUAL\n")
         if not arduino_auto:
             self._send_serial_cmd("PUMP:ON\n" if self.pump_on else "PUMP:OFF\n")
@@ -373,13 +413,22 @@ class HardwareManager:
         except Exception:
             pass
 
+        ip_str = "N/A"
+        try:
+            res = subprocess.run(["hostname", "-I"], capture_output=True, text=True, timeout=2)
+            if res.returncode == 0 and res.stdout.strip():
+                ip_str = res.stdout.split()[0]
+        except Exception:
+            pass
+
         return {
+            "ip_address": ip_str,
             "cpu_temp": temp_str,
             "ram_usage": ram_str,
             "disk_usage": disk_str,
             "uptime": uptime_str,
             "lcd_driver": "ADS7846 6-Point Affine",
-            "gpio_relay": "GPIO 17 (Pin 11)",
+            "gpio_relay": "Mega Pin 8 (Active LOW)",
             "arduino_mega": "Connected (/dev/ttyACM0 @ 115200)" if self.arduino_connected else "Standby / Simulated"
         }
 
@@ -408,6 +457,12 @@ class HardwareManager:
                 hum = None
                 soil = None
                 status_label = "NOT_CONNECTED"
+
+            # Extra field sensors are only meaningful with live hardware
+            rain = self.real_rain if hw_online and not sim_mode else None
+            light = self.real_light if hw_online and not sim_mode else None
+            water_level = self.real_water_level if hw_online and not sim_mode else None
+            water_cm = self.real_water_cm if hw_online and not sim_mode else None
 
             pump = self.pump_on
             mode = self.pump_mode
@@ -439,6 +494,12 @@ class HardwareManager:
             "temperature_f": temp_f,
             "humidity": hum,
             "soil_moisture": soil,
+            "rain": rain,
+            "light": light,
+            "water_level": water_level,
+            "water_cm": water_cm,
+            "tank_empty_cm": self.tank_empty_cm,
+            "tank_full_cm": self.tank_full_cm,
             "soil_condition": condition,
             "soil_color": condition_color,
             "pump_status": "ON" if pump else "OFF",
@@ -500,8 +561,11 @@ class HardwareManager:
                             self.real_rain = int(data["rain"])
                         if "light" in data:
                             self.real_light = int(data["light"])
+                        # null when the ultrasonic sensor gets no echo
                         if "water_level" in data:
-                            self.real_water_level = int(data["water_level"])
+                            self.real_water_level = int(data["water_level"]) if data["water_level"] is not None else None
+                        if "water_cm" in data:
+                            self.real_water_cm = float(data["water_cm"]) if data["water_cm"] is not None else None
                         if "pump" in data and self.pump_mode == "AUTO" and not self.simulator_mode:
                             self.pump_on = bool(data["pump"])
                             if self.relay_device:

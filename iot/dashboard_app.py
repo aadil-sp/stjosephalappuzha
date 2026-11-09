@@ -1,21 +1,17 @@
 #!/usr/bin/env python3
 """
-Blynk-Inspired 3.5" (480x320) TFT Touchscreen IoT Interactive Device & Dashboard
-Engineered specifically for ADS7846 SPI Resistive Touch on Raspberry Pi 4.
-Features:
-- Main Blynk-style dashboard with active crop badge & small corner motor button
-- Multi-Tab Settings Hub:
-  * 🌾 Crop Profiles (Tomato, Paddy, Chilli, Potato, Corn, Cactus, Custom)
-  * 💧 Cutoff Adjuster (5% increment/decrement touch buttons)
-  * 📶 Wi-Fi Controls (Network scanner + On-Screen Touch Keyboard for passwords)
-  * ⚙️ Device Diagnostics (CPU Temp, RAM, Disk, Uptime, Reboot)
-- Full virtual on-screen QWERTY touch keyboard
+Smart Farm touchscreen dashboard for the 3.5" (480x320) ADS7846 LCD on Raspberry Pi 4.
+
+Home screen: soil moisture gauge with cutoff markers, temperature / humidity /
+tank / weather tiles, pump button and AUTO / MANUAL mode switch.
+Settings: Crops, Cutoffs, Simulator, Wi-Fi (with on-screen keyboard), Device, Wiring.
+
+The resistive touch driver only delivers taps, so every control is a large
+button or +/- stepper; nothing relies on dragging or scrolling.
 """
 
 import sys
-import os
-import time
-import subprocess
+import math
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -23,1175 +19,1037 @@ sys.path.insert(0, str(SCRIPT_DIR))
 
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QStackedWidget, QVBoxLayout,
-    QHBoxLayout, QLabel, QPushButton, QProgressBar, QFrame, QGridLayout,
-    QScrollArea, QMessageBox, QSlider
+    QHBoxLayout, QLabel, QPushButton, QFrame, QGridLayout
 )
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal
-from PyQt5.QtGui import QFont, QColor
+from PyQt5.QtCore import Qt, QTimer, QSize, QRectF, QPointF, pyqtSignal
+from PyQt5.QtGui import QFont, QColor, QPainter, QPen, QBrush, QFontMetricsF
 
 from hardware_manager import hardware, CROP_PRESETS, run_privileged
 from touch_driver import HardwareTouchInjector, inject_qt_click
 from keyboard_dialog import get_text_input
+from icons import qt_pixmap, qt_icon
 import wifi_manager
 
-BLYNK_THEME = """
-QMainWindow, QWidget#MainRoot {
-    background-color: #0b1120;
-    color: #f8fafc;
-    font-family: "DejaVu Sans", "Noto Sans", -apple-system, sans-serif;
+# ---------------------------------------------------------------------------
+# Palette: dark "field instrument" theme (shared with the web dashboard)
+# ---------------------------------------------------------------------------
+C = {
+    "bg": "#0f1410",
+    "surface": "#172019",
+    "raised": "#1f2a21",
+    "line": "#2c3a2e",
+    "text": "#eef3ea",
+    "muted": "#93a394",
+    "dim": "#5f6e60",
+    "leaf": "#8fd16a",
+    "leaf_bg": "#22331c",
+    "water": "#4cb8e0",
+    "sun": "#f4b04a",
+    "tank": "#3fc1b0",
+    "light": "#f5d76e",
+    "alert": "#ef5d50",
+    "alert_bg": "#3a1a17",
 }
 
-QSlider::groove:horizontal {
-    border: 1px solid #1e293b;
-    height: 8px;
-    background: #0b1120;
-    border-radius: 4px;
-}
-QSlider::sub-page:horizontal {
-    background: #0284c7;
-    border-radius: 4px;
-}
-QSlider::handle:horizontal {
-    background: #38bdf8;
-    border: 2px solid #ffffff;
-    width: 22px;
-    margin-top: -7px;
-    margin-bottom: -7px;
-    border-radius: 11px;
-}
-QSlider::handle:horizontal:pressed {
-    background: #10b981;
+CROP_COLORS = {
+    "tomato": "#ef6a5a", "paddy": "#e9c46a", "chilli": "#e4572e", "potato": "#c89f6b",
+    "corn": "#f2c14e", "arid": "#8fd16a", "onion": "#c77dba", "custom": "#93a394",
 }
 
-QFrame {
-    border: none;
-    background: transparent;
-}
+FONT = "DejaVu Sans"
 
-/* Header Bars */
-QFrame#HeaderBar {
-    background-color: #131d31;
-    border-bottom: 2px solid #1e293b;
-    border-radius: 6px;
-}
-
-/* Blynk-style Tile Cards */
-QFrame#BlynkCard {
-    background-color: #131d31;
-    border: 1.5px solid #1e293b;
+THEME = f"""
+QWidget {{
+    background-color: {C['bg']};
+    color: {C['text']};
+}}
+QLabel {{ background: transparent; }}
+QFrame#Card {{
+    background-color: {C['surface']};
+    border: 1px solid {C['line']};
+    border-radius: 12px;
+}}
+QFrame#Card QLabel {{ background: transparent; border: none; }}
+QPushButton {{
+    background-color: {C['raised']};
+    color: {C['text']};
+    border: 1px solid {C['line']};
     border-radius: 10px;
-}
-
-QFrame#BlynkCardHighlight {
-    background-color: #131d31;
-    border: 1.5px solid #334155;
-    border-radius: 10px;
-}
-
-/* Base Tactile Buttons */
-QPushButton {
-    background-color: #1e293b;
-    color: #f8fafc;
-    border: 1.5px solid #334155;
-    border-radius: 8px;
-    font-weight: bold;
-    font-size: 11px;
-    padding: 3px 6px;
-}
-
-QPushButton:pressed {
-    background-color: #334155;
-    border-color: #0284c7;
-}
-
-/* Navigation / Settings Header Button */
-QPushButton#BtnSettings {
-    background-color: #1e293b;
-    color: #38bdf8;
-    border: 1.5px solid #0284c7;
-    border-radius: 6px;
-    font-size: 10px;
-    font-weight: bold;
-    padding: 3px 8px;
-}
-
-QPushButton#BtnBack {
-    background-color: #0284c7;
-    color: #ffffff;
-    border: 1.5px solid #38bdf8;
-    border-radius: 6px;
-    font-size: 11px;
-    font-weight: bold;
-    padding: 4px 10px;
-}
-
-/* Tab Selector Buttons */
-QPushButton#BtnTabActive {
-    background-color: #0284c7;
-    color: #ffffff;
-    border: 1.5px solid #38bdf8;
-    border-radius: 6px;
-    font-size: 10px;
-    font-weight: bold;
-}
-
-QPushButton#BtnTabInactive {
-    background-color: #0f172a;
-    color: #94a3b8;
-    border: 1px solid #1e293b;
-    border-radius: 6px;
-    font-size: 10px;
-}
-
-/* Small Corner Pump Widget Buttons */
-QPushButton#BtnCornerPumpOff {
-    background-color: #1e293b;
-    color: #94a3b8;
-    border: 2px solid #475569;
-    border-radius: 8px;
-    font-size: 11px;
-    font-weight: bold;
-}
-
-QPushButton#BtnCornerPumpOn {
-    background-color: #059669;
-    color: #ffffff;
-    border: 2px solid #34d399;
-    border-radius: 8px;
-    font-size: 11px;
-    font-weight: bold;
-}
-
-/* Adjustment Buttons in Settings */
-QPushButton#BtnAdjust {
-    background-color: #1e293b;
-    color: #38bdf8;
-    border: 1.5px solid #0284c7;
-    border-radius: 8px;
-    font-size: 14px;
-    font-weight: bold;
-}
-
-QPushButton#BtnPreset {
-    background-color: #0f172a;
-    color: #94a3b8;
-    border: 1px solid #334155;
-    border-radius: 6px;
-    font-size: 9px;
-    padding: 2px 4px;
-}
-
-/* Crop Selection Cards */
-QPushButton#BtnCropActive {
-    background-color: #0c2340;
-    color: #38bdf8;
-    border: 2px solid #0284c7;
-    border-radius: 8px;
-    font-weight: bold;
-    font-size: 10px;
-}
-
-QPushButton#BtnCropInactive {
-    background-color: #131d31;
-    color: #cbd5e1;
-    border: 1.5px solid #1e293b;
-    border-radius: 8px;
-    font-size: 10px;
-}
-
-/* Progress Bars */
-QProgressBar {
-    background-color: #0b1120;
-    border: 1px solid #1e293b;
-    border-radius: 4px;
-    text-align: center;
-    color: #ffffff;
-    font-size: 9px;
-    font-weight: bold;
-}
-
-QProgressBar::chunk {
-    background-color: #10b981;
-    border-radius: 3px;
-}
+    padding: 0px 10px;
+}}
+QPushButton:pressed {{ background-color: {C['line']}; }}
+QPushButton[tone="primary"] {{
+    background-color: {C['leaf']};
+    color: {C['bg']};
+    border: 1px solid {C['leaf']};
+}}
+QPushButton[tone="selected"] {{
+    background-color: {C['leaf_bg']};
+    color: {C['leaf']};
+    border: 2px solid {C['leaf']};
+}}
+QPushButton[tone="quiet"] {{
+    background-color: transparent;
+    color: {C['muted']};
+    border: 1px solid {C['line']};
+}}
+QPushButton[tone="danger"] {{
+    background-color: {C['alert_bg']};
+    color: {C['alert']};
+    border: 1px solid #6b2a24;
+}}
+QPushButton[tone="danger-armed"] {{
+    background-color: {C['alert']};
+    color: {C['bg']};
+    border: 1px solid {C['alert']};
+}}
+QPushButton[nav="true"] {{
+    text-align: left;
+    padding-left: 10px;
+    background-color: transparent;
+    color: {C['muted']};
+    border: 1px solid transparent;
+}}
+QPushButton[nav="true"][tone="selected"] {{
+    background-color: {C['leaf_bg']};
+    color: {C['leaf']};
+    border: 1px solid {C['leaf']};
+}}
+QPushButton[row="true"] {{ text-align: left; padding-left: 12px; }}
 """
 
 
+def px_font(size, bold=False):
+    f = QFont(FONT)
+    f.setPixelSize(size)
+    f.setBold(bold)
+    return f
+
+
+def label(text="", size=13, color=None, bold=False, align=None):
+    lbl = QLabel(text)
+    lbl.setFont(px_font(size, bold))
+    if color:
+        lbl.setStyleSheet(f"color: {color};")
+    if align is not None:
+        lbl.setAlignment(align)
+    return lbl
+
+
+def caps(text, color=None):
+    """Small uppercase section caption."""
+    lbl = label(text.upper(), 11, color or C["muted"], bold=True)
+    f = lbl.font()
+    f.setLetterSpacing(QFont.AbsoluteSpacing, 0.8)
+    lbl.setFont(f)
+    return lbl
+
+
+def icon_label(name, color, size=22):
+    lbl = QLabel()
+    lbl.setPixmap(qt_pixmap(name, color, size))
+    lbl.setFixedSize(size, size)
+    return lbl
+
+
+def button(text="", icon=None, icon_color=None, icon_size=22, tone=None, h=44, w=None):
+    btn = QPushButton(text)
+    btn.setFocusPolicy(Qt.NoFocus)
+    btn.setFont(px_font(14, True))
+    if icon:
+        btn.setIcon(qt_icon(icon, icon_color or C["text"], icon_size))
+        btn.setIconSize(QSize(icon_size, icon_size))
+    if tone:
+        btn.setProperty("tone", tone)
+    btn.setFixedHeight(h)
+    if w:
+        btn.setFixedWidth(w)
+    return btn
+
+
+def set_tone(widget, tone):
+    if widget.property("tone") == tone:
+        return
+    widget.setProperty("tone", tone)
+    widget.style().unpolish(widget)
+    widget.style().polish(widget)
+
+
+def card():
+    f = QFrame()
+    f.setObjectName("Card")
+    return f
+
+
+def passthrough(*widgets):
+    """Child labels inside buttons must not swallow taps."""
+    for w in widgets:
+        w.setAttribute(Qt.WA_TransparentForMouseEvents)
+
+
+# ---------------------------------------------------------------------------
+# Custom painted widgets
+# ---------------------------------------------------------------------------
+class ArcGauge(QWidget):
+    """240-degree soil moisture gauge with dry (start) and target (stop) markers."""
+
+    SWEEP = 240.0
+    START = 210.0
+
+    def __init__(self):
+        super().__init__()
+        self.value = None
+        self.dry = 35.0
+        self.stop = 65.0
+        self.color = C["leaf"]
+        self.caption = "--"
+        self.setMinimumSize(150, 120)
+
+    def set_state(self, value, dry, stop, color, caption):
+        state = (value, dry, stop, color, caption)
+        if state != (self.value, self.dry, self.stop, self.color, self.caption):
+            self.value, self.dry, self.stop, self.color, self.caption = state
+            self.update()
+
+    def _point(self, cx, cy, radius, frac):
+        a = math.radians(self.START - self.SWEEP * frac)
+        return QPointF(cx + radius * math.cos(a), cy - radius * math.sin(a))
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        w, h = self.width(), self.height()
+        thick = 12.0
+        r = min(w / 2.0, (h - 8) / 1.5) - thick / 2 - 6
+        cx, cy = w / 2.0, 6 + thick / 2 + r
+        rect = QRectF(cx - r, cy - r, 2 * r, 2 * r)
+
+        p.setPen(QPen(QColor(C["raised"]), thick, Qt.SolidLine, Qt.RoundCap))
+        p.drawArc(rect, int(self.START * 16), int(-self.SWEEP * 16))
+
+        if self.value is not None:
+            frac = max(0.0, min(1.0, self.value / 100.0))
+            if frac > 0:
+                p.setPen(QPen(QColor(self.color), thick, Qt.SolidLine, Qt.RoundCap))
+                p.drawArc(rect, int(self.START * 16), int(-self.SWEEP * 16 * frac))
+
+        # Cutoff markers straddling the track
+        for pct, col in ((self.dry, C["sun"]), (self.stop, C["water"])):
+            frac = max(0.0, min(1.0, pct / 100.0))
+            a = self._point(cx, cy, r - thick / 2 - 4, frac)
+            b = self._point(cx, cy, r + thick / 2 + 4, frac)
+            # Dark halo keeps the marker visible on a same-coloured value arc
+            p.setPen(QPen(QColor(C["surface"]), 7, Qt.SolidLine, Qt.RoundCap))
+            p.drawLine(a, b)
+            p.setPen(QPen(QColor(col), 3, Qt.SolidLine, Qt.RoundCap))
+            p.drawLine(a, b)
+
+        # Value + unit
+        val = "--" if self.value is None else f"{self.value:.0f}"
+        f_big, f_unit = px_font(36, True), px_font(15, True)
+        tw = QFontMetricsF(f_big).horizontalAdvance(val)
+        uw = QFontMetricsF(f_unit).horizontalAdvance("%")
+        x0 = cx - (tw + uw + 2) / 2
+        base = cy + 12
+        p.setPen(QColor(C["text"]))
+        p.setFont(f_big)
+        p.drawText(QPointF(x0, base), val)
+        p.setPen(QColor(C["muted"]))
+        p.setFont(f_unit)
+        p.drawText(QPointF(x0 + tw + 2, base), "%")
+
+        # Condition caption in the gauge opening
+        p.setPen(QColor(self.color))
+        p.setFont(px_font(13, True))
+        p.drawText(QRectF(0, cy + r * 0.5 - 10, w, 22), Qt.AlignCenter, self.caption)
+        p.end()
+
+
+class RangeBar(QWidget):
+    """0-100% bar showing the watering band and the current soil reading."""
+
+    def __init__(self):
+        super().__init__()
+        self.dry, self.stop, self.soil = 35.0, 65.0, None
+        self.setFixedHeight(34)
+
+    def set_state(self, dry, stop, soil):
+        if (dry, stop, soil) != (self.dry, self.stop, self.soil):
+            self.dry, self.stop, self.soil = dry, stop, soil
+            self.update()
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        w = self.width() - 12
+        x0, y, bh = 6.0, 8.0, 10.0
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(C["raised"]))
+        p.drawRoundedRect(QRectF(x0, y, w, bh), 5, 5)
+        p.setBrush(QColor(C["leaf_bg"]))
+        p.drawRect(QRectF(x0 + w * self.dry / 100, y, w * (self.stop - self.dry) / 100, bh))
+        for pct, col in ((self.dry, C["sun"]), (self.stop, C["water"])):
+            p.setBrush(QColor(col))
+            p.drawRoundedRect(QRectF(x0 + w * pct / 100 - 2, y - 3, 4, bh + 6), 2, 2)
+        if self.soil is not None:
+            sx = x0 + w * max(0, min(100, self.soil)) / 100
+            p.setBrush(QColor(C["text"]))
+            p.drawEllipse(QPointF(sx, y + bh / 2), 6, 6)
+        p.setPen(QColor(C["dim"]))
+        p.setFont(px_font(11))
+        p.drawText(QRectF(x0, y + bh + 3, 40, 14), Qt.AlignLeft, "0%")
+        p.drawText(QRectF(x0 + w - 40, y + bh + 3, 40, 14), Qt.AlignRight, "100%")
+        if self.soil is not None:
+            p.setPen(QColor(C["muted"]))
+            p.drawText(QRectF(x0, y + bh + 3, w, 14), Qt.AlignCenter, f"soil now {self.soil:.0f}%")
+        p.end()
+
+
+class Tile(QFrame):
+    """Compact sensor tile: icon + caption, big value + unit, status line."""
+
+    def __init__(self, icon, title, color):
+        super().__init__()
+        self.setObjectName("Card")
+        box = QVBoxLayout(self)
+        box.setContentsMargins(10, 8, 10, 8)
+        box.setSpacing(2)
+
+        top = QHBoxLayout()
+        top.setSpacing(6)
+        self.icon = icon_label(icon, color, 20)
+        top.addWidget(self.icon)
+        top.addWidget(caps(title))
+        top.addStretch()
+        box.addLayout(top)
+        box.addStretch()
+
+        row = QHBoxLayout()
+        row.setSpacing(3)
+        self.val = label("--", 26, C["text"], bold=True)
+        self.unit = label("", 13, C["muted"], bold=True)
+        row.addWidget(self.val, alignment=Qt.AlignBottom)
+        row.addWidget(self.unit, alignment=Qt.AlignBottom)
+        row.addStretch()
+        box.addLayout(row)
+
+        self.sub = label("", 12, C["muted"])
+        box.addWidget(self.sub)
+
+    def set(self, value, unit="", sub="", sub_color=None, icon=None, icon_color=None):
+        self.val.setText(value)
+        self.val.setStyleSheet(f"color: {C['text'] if value != '--' else C['dim']};")
+        self.unit.setText(unit if value != "--" else "")
+        self.sub.setText(sub)
+        self.sub.setStyleSheet(f"color: {sub_color or C['muted']};")
+        if icon:
+            self.icon.setPixmap(qt_pixmap(icon, icon_color, 20))
+
+
+class Stepper(QFrame):
+    """Label + value with large - / + buttons (tap-only friendly)."""
+
+    def __init__(self, icon, title, color, on_step, step, fmt):
+        super().__init__()
+        self.setObjectName("Card")
+        self.fmt = fmt
+        row = QHBoxLayout(self)
+        row.setContentsMargins(10, 4, 6, 4)
+        row.setSpacing(8)
+        row.addWidget(icon_label(icon, color, 22))
+        col = QVBoxLayout()
+        col.setSpacing(0)
+        col.addWidget(label(title, 12, C["muted"], bold=True))
+        self.val = label("--", 20, C["text"], bold=True)
+        col.addWidget(self.val)
+        row.addLayout(col, stretch=1)
+        minus = button(icon="minus", w=54, h=42)
+        plus = button(icon="plus", w=54, h=42)
+        minus.clicked.connect(lambda: on_step(-step))
+        plus.clicked.connect(lambda: on_step(step))
+        row.addWidget(minus)
+        row.addWidget(plus)
+
+    def set_value(self, v):
+        self.val.setText(self.fmt.format(v))
+
+
+# ---------------------------------------------------------------------------
+# Main window
+# ---------------------------------------------------------------------------
 class IoTTouchDashboard(QMainWindow):
     hardware_touch_signal = pyqtSignal(int, int)
 
+    TABS = [
+        ("crops", "Crops", "sprout"),
+        ("cutoffs", "Cutoffs", "gauge"),
+        ("tank", "Tank", "tank"),
+        ("sim", "Simulator", "sliders"),
+        ("wifi", "Wi-Fi", "wifi"),
+        ("device", "Device", "chip"),
+        ("info", "Wiring", "plug"),
+    ]
+    WIFI_PAGE_SIZE = 4
+
     def __init__(self, fullscreen: bool = False):
         super().__init__()
-        self.setWindowTitle("Smart IoT Agriculture Dashboard")
-        self.setObjectName("MainRoot")
+        self.setWindowTitle("Smart Farm")
         self.setFixedSize(480, 320)
 
-        # Multi-page stack (0: Dashboard, 1: Settings Hub)
+        self.wifi_networks = []
+        self.wifi_page = 0
+        self.reboot_armed = False
+
         self.stack = QStackedWidget(self)
         self.setCentralWidget(self.stack)
-
-        self.page_dashboard = QWidget()
+        self.page_home = QWidget()
         self.page_settings = QWidget()
-
-        self.init_dashboard_ui()
-        self.init_settings_ui()
-
-        self.stack.addWidget(self.page_dashboard)
+        self.build_home()
+        self.build_settings()
+        self.stack.addWidget(self.page_home)
         self.stack.addWidget(self.page_settings)
 
-        # Hardware touch listener
-        self.hardware_touch_signal.connect(self.handle_hardware_touch)
+        self.hardware_touch_signal.connect(lambda x, y: inject_qt_click(self, x, y))
         self.touch_injector = HardwareTouchInjector(self.hardware_touch_signal.emit)
         self.touch_injector.start()
 
-        # Telemetry refresh timer (5 Hz)
         self.refresh_timer = QTimer(self)
         self.refresh_timer.timeout.connect(self.update_telemetry)
-        self.refresh_timer.start(200)
-
-        # Wi-Fi cached scan
-        self.scanned_networks = []
+        self.refresh_timer.start(500)
+        self.update_telemetry()
 
         if fullscreen:
             self.showFullScreen()
         else:
             self.show()
 
-    def handle_hardware_touch(self, x: int, y: int):
-        inject_qt_click(self, x, y)
+    # ------------------------------------------------------------------ home
+    def build_home(self):
+        root = QVBoxLayout(self.page_home)
+        root.setContentsMargins(8, 6, 8, 8)
+        root.setSpacing(8)
 
-    # =========================================================================
-    # PAGE 0: BLYNK-INSPIRED MAIN DASHBOARD
-    # =========================================================================
-    def init_dashboard_ui(self):
-        dash_layout = QVBoxLayout(self.page_dashboard)
-        dash_layout.setContentsMargins(6, 4, 6, 4)
-        dash_layout.setSpacing(4)
+        # Header
+        header = QHBoxLayout()
+        header.setSpacing(8)
+        header.addWidget(icon_label("leaf", C["leaf"], 24))
+        header.addWidget(label("Smart Farm", 18, C["text"], bold=True))
+        header.addStretch()
+        self.lbl_status = label("", 12, bold=True)
+        header.addWidget(self.lbl_status)
+        self.lbl_clock = label("--:--", 15, C["muted"], bold=True)
+        header.addWidget(self.lbl_clock)
+        btn_settings = button(icon="gear", icon_color=C["text"], icon_size=24, w=48, h=40)
+        btn_settings.clicked.connect(lambda: self.open_settings("crops"))
+        header.addWidget(btn_settings)
+        root.addLayout(header)
 
-        # 1. Header Strip (28px)
-        header = QFrame()
-        header.setObjectName("HeaderBar")
-        header.setFixedHeight(28)
-        h_box = QHBoxLayout(header)
-        h_box.setContentsMargins(6, 2, 6, 2)
+        # Body: gauge card + 2x2 tiles
+        body = QHBoxLayout()
+        body.setSpacing(8)
 
-        lbl_logo = QLabel("🌿 BLYNK IOT")
-        lbl_logo.setFont(QFont("DejaVu Sans", 9, QFont.Bold))
-        lbl_logo.setStyleSheet("color: #38bdf8;")
+        gauge_card = card()
+        gauge_card.setFixedWidth(196)
+        g = QVBoxLayout(gauge_card)
+        g.setContentsMargins(8, 8, 8, 6)
+        g.setSpacing(0)
+        g_top = QHBoxLayout()
+        g_top.setSpacing(6)
+        g_top.addWidget(icon_label("sprout", C["leaf"], 20))
+        g_top.addWidget(caps("Soil moisture"))
+        g_top.addStretch()
+        g.addLayout(g_top)
+        self.gauge = ArcGauge()
+        g.addWidget(self.gauge, stretch=1)
+        self.btn_crop = button("", tone="quiet", h=30)
+        self.btn_crop.setFont(px_font(12, True))
+        self.btn_crop.clicked.connect(lambda: self.open_settings("crops"))
+        g.addWidget(self.btn_crop)
+        body.addWidget(gauge_card)
 
-        self.lbl_crop_badge = QLabel("🍅 Tomato (35%-65%)")
-        self.lbl_crop_badge.setFont(QFont("DejaVu Sans", 8, QFont.Bold))
-        self.lbl_crop_badge.setStyleSheet("color: #34d399; background: #064e3b; border-radius: 4px; padding: 2px 6px;")
+        grid = QGridLayout()
+        grid.setSpacing(8)
+        self.tile_temp = Tile("thermo", "Temp", C["sun"])
+        self.tile_hum = Tile("drop", "Humidity", C["water"])
+        self.tile_tank = Tile("tank", "Tank", C["tank"])
+        self.tile_weather = Tile("sun", "Weather", C["light"])
+        grid.addWidget(self.tile_temp, 0, 0)
+        grid.addWidget(self.tile_hum, 0, 1)
+        grid.addWidget(self.tile_tank, 1, 0)
+        grid.addWidget(self.tile_weather, 1, 1)
+        body.addLayout(grid, stretch=1)
+        root.addLayout(body, stretch=1)
 
-        self.lbl_clock = QLabel("--:--:--")
-        self.lbl_clock.setFont(QFont("DejaVu Sans", 8))
-        self.lbl_clock.setStyleSheet("color: #94a3b8;")
+        # Controls: pump + mode switch
+        controls = QHBoxLayout()
+        controls.setSpacing(8)
+        self.btn_pump = button("PUMP OFF", icon="power", icon_size=24, h=52, w=196)
+        self.btn_pump.setFont(px_font(16, True))
+        self.btn_pump.clicked.connect(self.on_pump)
+        controls.addWidget(self.btn_pump)
 
-        btn_settings = QPushButton("⚙️ SETTINGS")
-        btn_settings.setObjectName("BtnSettings")
-        btn_settings.clicked.connect(lambda: self.open_settings(0))
+        self.btn_auto = button("AUTO", icon="auto", h=52)
+        self.btn_manual = button("MANUAL", icon="hand", h=52)
+        self.btn_auto.clicked.connect(lambda: self.set_mode("AUTO"))
+        self.btn_manual.clicked.connect(lambda: self.set_mode("MANUAL"))
+        controls.addWidget(self.btn_auto, stretch=1)
+        controls.addWidget(self.btn_manual, stretch=1)
+        root.addLayout(controls)
 
-        h_box.addWidget(lbl_logo)
-        h_box.addSpacing(6)
-        h_box.addWidget(self.lbl_crop_badge)
-        h_box.addStretch()
-        h_box.addWidget(self.lbl_clock)
-        h_box.addSpacing(6)
-        h_box.addWidget(btn_settings)
-        dash_layout.addWidget(header)
+    # -------------------------------------------------------------- settings
+    def build_settings(self):
+        root = QVBoxLayout(self.page_settings)
+        root.setContentsMargins(8, 6, 8, 8)
+        root.setSpacing(8)
 
-        # 2. Main Blynk Metric Cards (Height ~155px)
-        cards_row = QHBoxLayout()
-        cards_row.setSpacing(6)
-
-        # Card 1: Temperature
-        self.card_temp = QFrame()
-        self.card_temp.setObjectName("BlynkCard")
-        t_box = QVBoxLayout(self.card_temp)
-        t_box.setContentsMargins(6, 6, 6, 6)
-        t_box.setSpacing(1)
-
-        t_title = QLabel("🌡️ TEMPERATURE")
-        t_title.setFont(QFont("DejaVu Sans", 8, QFont.Bold))
-        t_title.setStyleSheet("color: #f97316;")
-        t_title.setAlignment(Qt.AlignCenter)
-
-        self.lbl_temp_val = QLabel("28.4")
-        self.lbl_temp_val.setFont(QFont("DejaVu Sans", 22, QFont.Bold))
-        self.lbl_temp_val.setStyleSheet("color: #ffffff;")
-        self.lbl_temp_val.setAlignment(Qt.AlignCenter)
-
-        self.lbl_temp_sub = QLabel("°C  |  83.1 °F")
-        self.lbl_temp_sub.setFont(QFont("DejaVu Sans", 8))
-        self.lbl_temp_sub.setStyleSheet("color: #94a3b8;")
-        self.lbl_temp_sub.setAlignment(Qt.AlignCenter)
-
-        self.bar_temp = QProgressBar()
-        self.bar_temp.setFixedHeight(5)
-        self.bar_temp.setRange(0, 50)
-        self.bar_temp.setValue(28)
-        self.bar_temp.setTextVisible(False)
-        self.bar_temp.setStyleSheet("QProgressBar::chunk { background-color: #f97316; }")
-
-        t_box.addWidget(t_title)
-        t_box.addWidget(self.lbl_temp_val)
-        t_box.addWidget(self.lbl_temp_sub)
-        t_box.addSpacing(2)
-        t_box.addWidget(self.bar_temp)
-        cards_row.addWidget(self.card_temp)
-
-        # Card 2: Humidity
-        self.card_hum = QFrame()
-        self.card_hum.setObjectName("BlynkCard")
-        h_card_box = QVBoxLayout(self.card_hum)
-        h_card_box.setContentsMargins(6, 6, 6, 6)
-        h_card_box.setSpacing(1)
-
-        h_title = QLabel("💧 HUMIDITY")
-        h_title.setFont(QFont("DejaVu Sans", 8, QFont.Bold))
-        h_title.setStyleSheet("color: #38bdf8;")
-        h_title.setAlignment(Qt.AlignCenter)
-
-        self.lbl_hum_val = QLabel("64.0")
-        self.lbl_hum_val.setFont(QFont("DejaVu Sans", 22, QFont.Bold))
-        self.lbl_hum_val.setStyleSheet("color: #ffffff;")
-        self.lbl_hum_val.setAlignment(Qt.AlignCenter)
-
-        self.lbl_hum_sub = QLabel("% RH (Normal)")
-        self.lbl_hum_sub.setFont(QFont("DejaVu Sans", 8))
-        self.lbl_hum_sub.setStyleSheet("color: #38bdf8;")
-        self.lbl_hum_sub.setAlignment(Qt.AlignCenter)
-
-        self.bar_hum = QProgressBar()
-        self.bar_hum.setFixedHeight(5)
-        self.bar_hum.setRange(0, 100)
-        self.bar_hum.setValue(64)
-        self.bar_hum.setTextVisible(False)
-        self.bar_hum.setStyleSheet("QProgressBar::chunk { background-color: #38bdf8; }")
-
-        h_card_box.addWidget(h_title)
-        h_card_box.addWidget(self.lbl_hum_val)
-        h_card_box.addWidget(self.lbl_hum_sub)
-        h_card_box.addSpacing(2)
-        h_card_box.addWidget(self.bar_hum)
-        cards_row.addWidget(self.card_hum)
-
-        # Card 3: Soil Moisture
-        self.card_soil = QFrame()
-        self.card_soil.setObjectName("BlynkCard")
-        s_box = QVBoxLayout(self.card_soil)
-        s_box.setContentsMargins(6, 6, 6, 6)
-        s_box.setSpacing(1)
-
-        s_title = QLabel("🌱 SOIL MOISTURE")
-        s_title.setFont(QFont("DejaVu Sans", 8, QFont.Bold))
-        s_title.setStyleSheet("color: #10b981;")
-        s_title.setAlignment(Qt.AlignCenter)
-
-        self.lbl_soil_val = QLabel("42.0")
-        self.lbl_soil_val.setFont(QFont("DejaVu Sans", 22, QFont.Bold))
-        self.lbl_soil_val.setStyleSheet("color: #ffffff;")
-        self.lbl_soil_val.setAlignment(Qt.AlignCenter)
-
-        self.lbl_soil_badge = QLabel("OPTIMAL")
-        self.lbl_soil_badge.setFont(QFont("DejaVu Sans", 8, QFont.Bold))
-        self.lbl_soil_badge.setStyleSheet("color: #10b981;")
-        self.lbl_soil_badge.setAlignment(Qt.AlignCenter)
-
-        self.bar_soil = QProgressBar()
-        self.bar_soil.setFixedHeight(5)
-        self.bar_soil.setRange(0, 100)
-        self.bar_soil.setValue(42)
-        self.bar_soil.setTextVisible(False)
-        self.bar_soil.setStyleSheet("QProgressBar::chunk { background-color: #10b981; }")
-
-        s_box.addWidget(s_title)
-        s_box.addWidget(self.lbl_soil_val)
-        s_box.addWidget(self.lbl_soil_badge)
-        s_box.addSpacing(2)
-        s_box.addWidget(self.bar_soil)
-        cards_row.addWidget(self.card_soil)
-
-        dash_layout.addLayout(cards_row)
-
-        # 3. Bottom Row: Left Auto Status + Right Corner Small Motor Button
-        bottom_row = QHBoxLayout()
-        bottom_row.setSpacing(6)
-
-        # Left Panel (Width: ~300px)
-        info_panel = QFrame()
-        info_panel.setObjectName("BlynkCardHighlight")
-        info_box = QVBoxLayout(info_panel)
-        info_box.setContentsMargins(8, 5, 8, 5)
-        info_box.setSpacing(2)
-
-        info_header = QHBoxLayout()
-        lbl_info_title = QLabel("⚡ IRRIGATION AUTOMATION")
-        lbl_info_title.setFont(QFont("DejaVu Sans", 8, QFont.Bold))
-        lbl_info_title.setStyleSheet("color: #38bdf8;")
-
-        self.btn_mode_toggle = QPushButton("MODE: AUTO")
-        self.btn_mode_toggle.setFixedHeight(22)
-        self.btn_mode_toggle.setStyleSheet("font-size: 10px; color: #38bdf8; border-color: #0284c7;")
-        self.btn_mode_toggle.clicked.connect(self.on_mode_toggle)
-
-        info_header.addWidget(lbl_info_title)
-        info_header.addStretch()
-        info_header.addWidget(self.btn_mode_toggle)
-        info_box.addLayout(info_header)
-
-        self.lbl_cutoff_summary = QLabel("Cutoff: Start < 35% | Stop >= 65%")
-        self.lbl_cutoff_summary.setFont(QFont("DejaVu Sans", 8))
-        self.lbl_cutoff_summary.setStyleSheet("color: #cbd5e1;")
-
-        quick_links = QHBoxLayout()
-        quick_links.setSpacing(4)
-        self.btn_quick_sim = QPushButton("🎮 Simulator")
-        self.btn_quick_sim.setFixedHeight(20)
-        self.btn_quick_sim.setStyleSheet("background: #0f172a; border: 1px solid #334155; font-size: 9px; color: #38bdf8;")
-        self.btn_quick_sim.clicked.connect(lambda: self.open_settings(0))
-
-        btn_quick_cutoffs = QPushButton("💧 Cutoff %")
-        btn_quick_cutoffs.setFixedHeight(20)
-        btn_quick_cutoffs.setStyleSheet("background: #0f172a; border: 1px solid #334155; font-size: 9px; color: #10b981;")
-        btn_quick_cutoffs.clicked.connect(lambda: self.open_settings(1))
-
-        btn_quick_wifi = QPushButton("📶 Wi-Fi")
-        btn_quick_wifi.setFixedHeight(20)
-        btn_quick_wifi.setStyleSheet("background: #0f172a; border: 1px solid #334155; font-size: 9px; color: #fbbf24;")
-        btn_quick_wifi.clicked.connect(lambda: self.open_settings(2))
-
-        quick_links.addWidget(self.btn_quick_sim)
-        quick_links.addWidget(btn_quick_cutoffs)
-        quick_links.addWidget(btn_quick_wifi)
-        info_box.addWidget(self.lbl_cutoff_summary)
-        info_box.addLayout(quick_links)
-        bottom_row.addWidget(info_panel, stretch=2)
-
-        # Right Corner Small Motor Widget (Width: ~160px)
-        motor_corner = QFrame()
-        motor_corner.setObjectName("BlynkCardHighlight")
-        motor_box = QVBoxLayout(motor_corner)
-        motor_box.setContentsMargins(6, 4, 6, 4)
-        motor_box.setSpacing(2)
-
-        lbl_m_title = QLabel("MOTOR (GPIO 17)")
-        lbl_m_title.setFont(QFont("DejaVu Sans", 7, QFont.Bold))
-        lbl_m_title.setStyleSheet("color: #94a3b8;")
-        lbl_m_title.setAlignment(Qt.AlignCenter)
-
-        self.btn_motor = QPushButton("💧 MOTOR: OFF")
-        self.btn_motor.setObjectName("BtnCornerPumpOff")
-        self.btn_motor.setFixedHeight(44)
-        self.btn_motor.clicked.connect(self.on_motor_click)
-
-        motor_box.addWidget(lbl_m_title)
-        motor_box.addWidget(self.btn_motor)
-        bottom_row.addWidget(motor_corner, stretch=1)
-
-        dash_layout.addLayout(bottom_row)
-
-        # 4. Footer Strip (16px)
-        footer = QHBoxLayout()
-        footer.setContentsMargins(4, 0, 4, 0)
-        self.lbl_footer = QLabel("● Touch: ADS7846 Active | IP: 10.180.5.188:8000 | Wi-Fi: Active")
-        self.lbl_footer.setFont(QFont("DejaVu Sans", 7))
-        self.lbl_footer.setStyleSheet("color: #475569;")
-        footer.addWidget(self.lbl_footer)
-        dash_layout.addLayout(footer)
-
-    # =========================================================================
-    # PAGE 1: INTERACTIVE SETTINGS HUB (CROPS, CUTOFFS, WIFI, DEVICE)
-    # =========================================================================
-    def init_settings_ui(self):
-        sett_layout = QVBoxLayout(self.page_settings)
-        sett_layout.setContentsMargins(6, 4, 6, 4)
-        sett_layout.setSpacing(4)
-
-        # Header: Back Button and Title
-        header = QFrame()
-        header.setObjectName("HeaderBar")
-        header.setFixedHeight(28)
-        h_box = QHBoxLayout(header)
-        h_box.setContentsMargins(6, 2, 6, 2)
-
-        lbl_title = QLabel("⚙️ SYSTEM SETTINGS")
-        lbl_title.setFont(QFont("DejaVu Sans", 9, QFont.Bold))
-        lbl_title.setStyleSheet("color: #38bdf8;")
-
-        btn_back = QPushButton("← DASHBOARD")
-        btn_back.setObjectName("BtnBack")
+        header = QHBoxLayout()
+        header.setSpacing(10)
+        btn_back = button("Home", icon="back", h=40, w=100)
         btn_back.clicked.connect(lambda: self.stack.setCurrentIndex(0))
+        header.addWidget(btn_back)
+        self.lbl_settings_title = label("", 18, C["text"], bold=True)
+        header.addWidget(self.lbl_settings_title)
+        header.addStretch()
+        self.lbl_settings_status = label("", 12, bold=True)
+        header.addWidget(self.lbl_settings_status)
+        root.addLayout(header)
 
-        h_box.addWidget(lbl_title)
-        h_box.addStretch()
-        h_box.addWidget(btn_back)
-        sett_layout.addWidget(header)
+        body = QHBoxLayout()
+        body.setSpacing(8)
 
-        # Tab Navigation Strip (5 Tabs: Simulator, Cutoffs, Wi-Fi, Device, Info)
-        tabs_box = QHBoxLayout()
-        tabs_box.setSpacing(4)
-        self.tab_buttons = []
+        nav = QVBoxLayout()
+        nav.setSpacing(3)
+        self.nav_buttons = {}
+        for key, title, icon in self.TABS:
+            b = button(title, icon=icon, icon_size=18, h=34, w=112)
+            b.setFont(px_font(12, True))
+            b.setProperty("nav", True)
+            b.clicked.connect(lambda _, k=key: self.open_settings(k))
+            nav.addWidget(b)
+            self.nav_buttons[key] = b
+        nav.addStretch()
+        body.addLayout(nav)
 
-        tab_names = ["🎮 Simulator", "💧 Cutoffs", "📶 Wi-Fi", "⚙️ Device", "ℹ️ Info"]
-        for idx, name in enumerate(tab_names):
-            btn = QPushButton(name)
-            btn.setFixedHeight(24)
-            btn.setObjectName("BtnTabActive" if idx == 0 else "BtnTabInactive")
-            btn.clicked.connect(lambda _, i=idx: self.switch_settings_tab(i))
-            self.tab_buttons.append(btn)
-            tabs_box.addWidget(btn)
-        sett_layout.addLayout(tabs_box)
+        self.tab_stack = QStackedWidget()
+        self.tab_index = {}
+        builders = {
+            "crops": self.build_tab_crops, "cutoffs": self.build_tab_cutoffs,
+            "tank": self.build_tab_tank,
+            "sim": self.build_tab_sim, "wifi": self.build_tab_wifi,
+            "device": self.build_tab_device, "info": self.build_tab_info,
+        }
+        for key, _, _ in self.TABS:
+            page = QWidget()
+            builders[key](page)
+            self.tab_index[key] = self.tab_stack.addWidget(page)
+        body.addWidget(self.tab_stack, stretch=1)
+        root.addLayout(body, stretch=1)
 
-        # Settings Content Stack (StackedWidget for the 5 tabs)
-        self.settings_content_stack = QStackedWidget()
-        sett_layout.addWidget(self.settings_content_stack, stretch=1)
-
-        # Tab 0: Sensor Simulator Mode
-        self.tab_simulator = QWidget()
-        self.init_tab_simulator()
-        self.settings_content_stack.addWidget(self.tab_simulator)
-
-        # Tab 1: Cutoff Percentages
-        self.tab_cutoffs = QWidget()
-        self.init_tab_cutoffs()
-        self.settings_content_stack.addWidget(self.tab_cutoffs)
-
-        # Tab 2: Wi-Fi Controls
-        self.tab_wifi = QWidget()
-        self.init_tab_wifi()
-        self.settings_content_stack.addWidget(self.tab_wifi)
-
-        # Tab 3: Device Diagnostics & Setup
-        self.tab_device = QWidget()
-        self.init_tab_device()
-        self.settings_content_stack.addWidget(self.tab_device)
-
-        # Tab 4: Hardware & Pinout Connections Info
-        self.tab_info = QWidget()
-        self.init_tab_info()
-        self.settings_content_stack.addWidget(self.tab_info)
-
-    def switch_settings_tab(self, tab_idx: int):
-        self.settings_content_stack.setCurrentIndex(tab_idx)
-        for i, btn in enumerate(self.tab_buttons):
-            btn.setObjectName("BtnTabActive" if i == tab_idx else "BtnTabInactive")
-            btn.style().unpolish(btn)
-            btn.style().polish(btn)
-
-        if tab_idx == 0:  # Simulator Tab
-            self.refresh_simulator_ui()
-        elif tab_idx == 2:  # Wi-Fi Tab
-            self.refresh_wifi_ui()
-        elif tab_idx == 3:  # Device Tab
-            self.refresh_device_ui()
-
-    def open_settings(self, tab_idx: int = 0):
-        self.switch_settings_tab(tab_idx)
+    def open_settings(self, key):
+        self.tab_stack.setCurrentIndex(self.tab_index[key])
+        for k, b in self.nav_buttons.items():
+            set_tone(b, "selected" if k == key else None)
+            col = C["leaf"] if k == key else C["muted"]
+            b.setIcon(qt_icon(dict((t[0], t[2]) for t in self.TABS)[k], col, 18))
+        self.lbl_settings_title.setText(dict((t[0], t[1]) for t in self.TABS)[key])
         self.stack.setCurrentIndex(1)
+        self.disarm_reboot()
 
-    # --- TAB 0: SENSOR SIMULATOR ---
-    def init_tab_simulator(self):
-        layout = QVBoxLayout(self.tab_simulator)
-        layout.setContentsMargins(4, 3, 4, 3)
-        layout.setSpacing(3)
-
-        # 1. Top Toggle Header Card
-        top_card = QFrame()
-        top_card.setObjectName("BlynkCard")
-        top_box = QHBoxLayout(top_card)
-        top_box.setContentsMargins(8, 4, 8, 4)
-
-        lbl_sim_info = QLabel("🎮 SENSOR SIMULATOR MODE\nOutputs & motor auto-react to slider values")
-        lbl_sim_info.setFont(QFont("DejaVu Sans", 7))
-        lbl_sim_info.setStyleSheet("color: #94a3b8;")
-
-        self.btn_sim_toggle = QPushButton("SIMULATOR: OFF")
-        self.btn_sim_toggle.setFixedHeight(28)
-        self.btn_sim_toggle.setFixedWidth(135)
-        self.btn_sim_toggle.clicked.connect(self.action_toggle_simulator)
-
-        top_box.addWidget(lbl_sim_info, stretch=1)
-        top_box.addWidget(self.btn_sim_toggle)
-        layout.addWidget(top_card)
-
-        # 2. Sliders Container Card
-        sliders_card = QFrame()
-        sliders_card.setObjectName("BlynkCard")
-        s_box = QVBoxLayout(sliders_card)
-        s_box.setContentsMargins(8, 4, 8, 4)
-        s_box.setSpacing(2)
-
-        # 1. Temperature Slider (0 - 50 °C)
-        row_t_header = QHBoxLayout()
-        lbl_t = QLabel("🌡️ Temperature")
-        lbl_t.setFont(QFont("DejaVu Sans", 8, QFont.Bold))
-        lbl_t.setStyleSheet("color: #f97316;")
-        self.lbl_sim_t_val = QLabel("28.0 °C")
-        self.lbl_sim_t_val.setFont(QFont("DejaVu Sans", 8, QFont.Bold))
-        self.lbl_sim_t_val.setStyleSheet("color: #ffffff;")
-        row_t_header.addWidget(lbl_t)
-        row_t_header.addStretch()
-        row_t_header.addWidget(self.lbl_sim_t_val)
-        s_box.addLayout(row_t_header)
-
-        row_t_ctrl = QHBoxLayout()
-        btn_t_minus = QPushButton("-1")
-        btn_t_minus.setFixedSize(28, 22)
-        btn_t_minus.clicked.connect(lambda: self.step_sim_slider("temp", -1))
-        self.slider_temp = QSlider(Qt.Horizontal)
-        self.slider_temp.setRange(0, 50)
-        self.slider_temp.setValue(int(hardware.sim_temp))
-        self.slider_temp.valueChanged.connect(self.on_sim_slider_changed)
-        btn_t_plus = QPushButton("+1")
-        btn_t_plus.setFixedSize(28, 22)
-        btn_t_plus.clicked.connect(lambda: self.step_sim_slider("temp", 1))
-        row_t_ctrl.addWidget(btn_t_minus)
-        row_t_ctrl.addWidget(self.slider_temp)
-        row_t_ctrl.addWidget(btn_t_plus)
-        s_box.addLayout(row_t_ctrl)
-
-        # 2. Humidity Slider (0 - 100 %)
-        row_h_header = QHBoxLayout()
-        lbl_h = QLabel("💧 Humidity")
-        lbl_h.setFont(QFont("DejaVu Sans", 8, QFont.Bold))
-        lbl_h.setStyleSheet("color: #38bdf8;")
-        self.lbl_sim_h_val = QLabel("64 %")
-        self.lbl_sim_h_val.setFont(QFont("DejaVu Sans", 8, QFont.Bold))
-        self.lbl_sim_h_val.setStyleSheet("color: #ffffff;")
-        row_h_header.addWidget(lbl_h)
-        row_h_header.addStretch()
-        row_h_header.addWidget(self.lbl_sim_h_val)
-        s_box.addLayout(row_h_header)
-
-        row_h_ctrl = QHBoxLayout()
-        btn_h_minus = QPushButton("-5")
-        btn_h_minus.setFixedSize(28, 22)
-        btn_h_minus.clicked.connect(lambda: self.step_sim_slider("hum", -5))
-        self.slider_hum = QSlider(Qt.Horizontal)
-        self.slider_hum.setRange(0, 100)
-        self.slider_hum.setValue(int(hardware.sim_humidity))
-        self.slider_hum.valueChanged.connect(self.on_sim_slider_changed)
-        btn_h_plus = QPushButton("+5")
-        btn_h_plus.setFixedSize(28, 22)
-        btn_h_plus.clicked.connect(lambda: self.step_sim_slider("hum", 5))
-        row_h_ctrl.addWidget(btn_h_minus)
-        row_h_ctrl.addWidget(self.slider_hum)
-        row_h_ctrl.addWidget(btn_h_plus)
-        s_box.addLayout(row_h_ctrl)
-
-        # 3. Soil Moisture Slider (0 - 100 %)
-        row_s_header = QHBoxLayout()
-        lbl_s = QLabel("🌱 Soil Moisture (Auto Motor Trigger)")
-        lbl_s.setFont(QFont("DejaVu Sans", 8, QFont.Bold))
-        lbl_s.setStyleSheet("color: #10b981;")
-        self.lbl_sim_s_val = QLabel("42 %")
-        self.lbl_sim_s_val.setFont(QFont("DejaVu Sans", 8, QFont.Bold))
-        self.lbl_sim_s_val.setStyleSheet("color: #ffffff;")
-        row_s_header.addWidget(lbl_s)
-        row_s_header.addStretch()
-        row_s_header.addWidget(self.lbl_sim_s_val)
-        s_box.addLayout(row_s_header)
-
-        row_s_ctrl = QHBoxLayout()
-        btn_s_minus = QPushButton("-5")
-        btn_s_minus.setFixedSize(28, 22)
-        btn_s_minus.clicked.connect(lambda: self.step_sim_slider("soil", -5))
-        self.slider_soil = QSlider(Qt.Horizontal)
-        self.slider_soil.setRange(0, 100)
-        self.slider_soil.setValue(int(hardware.sim_soil_moisture))
-        self.slider_soil.valueChanged.connect(self.on_sim_slider_changed)
-        btn_s_plus = QPushButton("+5")
-        btn_s_plus.setFixedSize(28, 22)
-        btn_s_plus.clicked.connect(lambda: self.step_sim_slider("soil", 5))
-        row_s_ctrl.addWidget(btn_s_minus)
-        row_s_ctrl.addWidget(self.slider_soil)
-        row_s_ctrl.addWidget(btn_s_plus)
-        s_box.addLayout(row_s_ctrl)
-
-        layout.addWidget(sliders_card)
-        layout.addStretch()
-        self.refresh_simulator_ui()
-
-    def action_toggle_simulator(self):
-        hardware.toggle_simulator_mode()
-        self.refresh_simulator_ui()
+        if key == "wifi":
+            self.refresh_wifi(rescan=not self.wifi_networks)
+        elif key == "device":
+            self.refresh_device()
         self.update_telemetry()
 
-    def step_sim_slider(self, kind: str, delta: int):
-        if kind == "temp":
-            self.slider_temp.setValue(max(0, min(50, self.slider_temp.value() + delta)))
-        elif kind == "hum":
-            self.slider_hum.setValue(max(0, min(100, self.slider_hum.value() + delta)))
-        elif kind == "soil":
-            self.slider_soil.setValue(max(0, min(100, self.slider_soil.value() + delta)))
+    # Crops ------------------------------------------------------------------
+    def build_tab_crops(self, page):
+        grid = QGridLayout(page)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setSpacing(6)
+        self.crop_buttons = {}
+        for i, (key, preset) in enumerate(CROP_PRESETS.items()):
+            b = QPushButton()
+            b.setFocusPolicy(Qt.NoFocus)
+            b.setFixedHeight(58)
+            b.setProperty("row", True)
+            inner = QHBoxLayout(b)
+            inner.setContentsMargins(10, 4, 8, 4)
+            inner.setSpacing(8)
+            ic = icon_label("sprout", CROP_COLORS.get(key, C["muted"]), 24)
+            txt = QVBoxLayout()
+            txt.setSpacing(0)
+            name = label(preset["name"].split(" / ")[0], 14, C["text"], bold=True)
+            rng = label("Your cutoffs" if key == "custom" else
+                        f"{preset['dry_cutoff']:.0f}–{preset['stop_cutoff']:.0f}% moisture", 11, C["muted"])
+            txt.addWidget(name)
+            txt.addWidget(rng)
+            inner.addWidget(ic)
+            inner.addLayout(txt, stretch=1)
+            passthrough(ic, name, rng)
+            b.clicked.connect(lambda _, k=key: self.select_crop(k))
+            grid.addWidget(b, i // 2, i % 2)
+            self.crop_buttons[key] = b
+        grid.setRowStretch(4, 1)
 
-    def on_sim_slider_changed(self):
-        t = float(self.slider_temp.value())
-        h = float(self.slider_hum.value())
-        s = float(self.slider_soil.value())
-        self.lbl_sim_t_val.setText(f"{t:.1f} °C")
-        self.lbl_sim_h_val.setText(f"{int(h)} %")
-        self.lbl_sim_s_val.setText(f"{int(s)} %")
-        hardware.set_simulated_sensors(t, h, s)
+    def select_crop(self, key):
+        hardware.set_crop(key)
         self.update_telemetry()
 
-    def refresh_simulator_ui(self):
-        is_on = hardware.simulator_mode
-        if is_on:
-            self.btn_sim_toggle.setText("SIMULATOR: ON")
-            self.btn_sim_toggle.setStyleSheet("background: #059669; color: #ffffff; border: 2px solid #34d399; font-weight: bold; border-radius: 6px;")
+    # Cutoffs ----------------------------------------------------------------
+    def build_tab_cutoffs(self, page):
+        box = QVBoxLayout(page)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.setSpacing(6)
+        self.step_dry = Stepper("power", "Pump starts below", C["sun"],
+                                lambda d: self.adjust_cutoff("dry", d), 5, "{:.0f} %")
+        self.step_stop = Stepper("drop", "Pump stops at", C["water"],
+                                 lambda d: self.adjust_cutoff("stop", d), 5, "{:.0f} %")
+        self.step_dry.setFixedHeight(66)
+        self.step_stop.setFixedHeight(66)
+        box.addWidget(self.step_dry)
+        box.addWidget(self.step_stop)
+        bar_card = card()
+        bc = QVBoxLayout(bar_card)
+        bc.setContentsMargins(8, 8, 8, 6)
+        bc.setSpacing(2)
+        bc.addWidget(caps("Watering band"))
+        self.range_bar = RangeBar()
+        bc.addWidget(self.range_bar)
+        box.addWidget(bar_card)
+        box.addStretch()
+
+    def adjust_cutoff(self, which, delta):
+        if which == "dry":
+            hardware.adjust_dry_cutoff(delta)
         else:
-            self.btn_sim_toggle.setText("SIMULATOR: OFF")
-            self.btn_sim_toggle.setStyleSheet("background: #1e293b; color: #94a3b8; border: 1.5px solid #475569; font-weight: bold; border-radius: 6px;")
-        self.lbl_sim_t_val.setText(f"{hardware.sim_temp:.1f} °C")
-        self.lbl_sim_h_val.setText(f"{int(hardware.sim_humidity)} %")
-        self.lbl_sim_s_val.setText(f"{int(hardware.sim_soil_moisture)} %")
-        self.slider_temp.blockSignals(True)
-        self.slider_hum.blockSignals(True)
-        self.slider_soil.blockSignals(True)
-        self.slider_temp.setValue(int(hardware.sim_temp))
-        self.slider_hum.setValue(int(hardware.sim_humidity))
-        self.slider_soil.setValue(int(hardware.sim_soil_moisture))
-        self.slider_temp.blockSignals(False)
-        self.slider_hum.blockSignals(False)
-        self.slider_soil.blockSignals(False)
+            hardware.adjust_stop_cutoff(delta)
+        self.update_telemetry()
 
-    # --- TAB 1: CUTOFFS ---
-    def init_tab_cutoffs(self):
-        layout = QVBoxLayout(self.tab_cutoffs)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.setSpacing(4)
+    # Tank -------------------------------------------------------------------
+    def build_tab_tank(self, page):
+        box = QVBoxLayout(page)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.setSpacing(6)
 
-        # 1. Low Moisture Cutoff
-        card1 = QFrame()
-        card1.setObjectName("BlynkCard")
-        c1_box = QVBoxLayout(card1)
-        c1_box.setContentsMargins(6, 4, 6, 4)
-        c1_box.setSpacing(2)
+        live = card()
+        lrow = QHBoxLayout(live)
+        lrow.setContentsMargins(10, 6, 10, 6)
+        lrow.setSpacing(8)
+        lrow.addWidget(icon_label("tank", C["tank"], 24))
+        self.lbl_tank_level = label("--", 20, C["text"], bold=True)
+        lrow.addWidget(self.lbl_tank_level)
+        lrow.addStretch()
+        self.lbl_tank_dist = label("", 12, C["muted"], align=Qt.AlignRight | Qt.AlignVCenter)
+        lrow.addWidget(self.lbl_tank_dist)
+        live.setFixedHeight(50)
+        box.addWidget(live)
 
-        lbl1 = QLabel("1. LOW MOISTURE CUTOFF (Starts Motor)")
-        lbl1.setFont(QFont("DejaVu Sans", 8, QFont.Bold))
-        lbl1.setStyleSheet("color: #f97316;")
+        self.step_tank_height = Stepper("tank", "Tank height", C["tank"],
+                                        lambda dlt: self.adjust_tank("height", dlt), 5, "{:.0f} cm")
+        self.step_tank_gap = Stepper("drop", "Gap when full", C["water"],
+                                     lambda dlt: self.adjust_tank("gap", dlt), 1, "{:.0f} cm")
+        for st in (self.step_tank_height, self.step_tank_gap):
+            st.setFixedHeight(58)
+            box.addWidget(st)
 
-        row1 = QHBoxLayout()
-        btn_m1 = QPushButton("  - 5%  ")
-        btn_m1.setObjectName("BtnAdjust")
-        btn_m1.setFixedHeight(30)
-        btn_m1.clicked.connect(lambda: self.adjust_dry(-5))
+        marks = QHBoxLayout()
+        marks.setSpacing(6)
+        self.btn_mark_empty = button("Empty now", icon="minus", icon_color=C["muted"], icon_size=18, h=40)
+        self.btn_mark_full = button("Full now", icon="check", icon_color=C["leaf"], icon_size=18, h=40)
+        self.btn_mark_empty.setFont(px_font(13, True))
+        self.btn_mark_full.setFont(px_font(13, True))
+        self.btn_mark_empty.clicked.connect(lambda: self.mark_tank("empty"))
+        self.btn_mark_full.clicked.connect(lambda: self.mark_tank("full"))
+        marks.addWidget(self.btn_mark_empty)
+        marks.addWidget(self.btn_mark_full)
+        box.addLayout(marks)
+        self.lbl_tank_hint = label("Height: sensor to floor. Gap: sensor to water when full.", 11, C["muted"])
+        box.addWidget(self.lbl_tank_hint)
+        box.addStretch()
 
-        self.lbl_dry_cutoff_val = QLabel("35 %")
-        self.lbl_dry_cutoff_val.setFont(QFont("DejaVu Sans", 16, QFont.Bold))
-        self.lbl_dry_cutoff_val.setAlignment(Qt.AlignCenter)
-        self.lbl_dry_cutoff_val.setStyleSheet("color: #ffffff; background: #0b1120; border-radius: 6px;")
+    def adjust_tank(self, which, delta):
+        if which == "height":
+            hardware.set_tank_calibration(empty_cm=hardware.tank_empty_cm + delta)
+        else:
+            hardware.set_tank_calibration(full_cm=hardware.tank_full_cm + delta)
+        self.update_telemetry()
 
-        btn_p1 = QPushButton("  + 5%  ")
-        btn_p1.setObjectName("BtnAdjust")
-        btn_p1.setFixedHeight(30)
-        btn_p1.clicked.connect(lambda: self.adjust_dry(+5))
+    def mark_tank(self, which):
+        if hardware.mark_tank(which) is None:
+            self.lbl_tank_hint.setText("No sensor reading — check the ultrasonic wiring.")
+            self.lbl_tank_hint.setStyleSheet(f"color: {C['alert']};")
+        else:
+            self.lbl_tank_hint.setText(f"Saved current distance as {'empty' if which == 'empty' else 'full'}.")
+            self.lbl_tank_hint.setStyleSheet(f"color: {C['leaf']};")
+        self.update_telemetry()
 
-        row1.addWidget(btn_m1)
-        row1.addWidget(self.lbl_dry_cutoff_val, stretch=2)
-        row1.addWidget(btn_p1)
-        c1_box.addWidget(lbl1)
-        c1_box.addLayout(row1)
-        layout.addWidget(card1)
+    # Simulator --------------------------------------------------------------
+    def build_tab_sim(self, page):
+        box = QVBoxLayout(page)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.setSpacing(6)
+        self.btn_sim = button("Simulator OFF", icon="sliders", h=44)
+        self.btn_sim.clicked.connect(self.toggle_sim)
+        box.addWidget(self.btn_sim)
+        box.addWidget(label("Fake values for testing. The pump follows soil.", 11, C["muted"]))
+        self.step_sim_t = Stepper("thermo", "Temperature", C["sun"], lambda d: self.step_sim("temp", d), 1, "{:.0f} °C")
+        self.step_sim_h = Stepper("drop", "Humidity", C["water"], lambda d: self.step_sim("hum", d), 5, "{:.0f} %")
+        self.step_sim_s = Stepper("sprout", "Soil moisture", C["leaf"], lambda d: self.step_sim("soil", d), 5, "{:.0f} %")
+        for s in (self.step_sim_t, self.step_sim_h, self.step_sim_s):
+            s.setFixedHeight(56)
+            box.addWidget(s)
+        box.addStretch()
 
-        # 2. Target Moisture Cutoff
-        card2 = QFrame()
-        card2.setObjectName("BlynkCard")
-        c2_box = QVBoxLayout(card2)
-        c2_box.setContentsMargins(6, 4, 6, 4)
-        c2_box.setSpacing(2)
+    def toggle_sim(self):
+        hardware.toggle_simulator_mode()
+        self.update_telemetry()
 
-        lbl2 = QLabel("2. TARGET MOISTURE CUTOFF (Stops Motor)")
-        lbl2.setFont(QFont("DejaVu Sans", 8, QFont.Bold))
-        lbl2.setStyleSheet("color: #10b981;")
+    def step_sim(self, kind, delta):
+        if kind == "temp":
+            hardware.set_simulated_sensors(temp=max(0, min(50, hardware.sim_temp + delta)))
+        elif kind == "hum":
+            hardware.set_simulated_sensors(humidity=max(0, min(100, hardware.sim_humidity + delta)))
+        else:
+            hardware.set_simulated_sensors(soil_moisture=max(0, min(100, hardware.sim_soil_moisture + delta)))
+        self.update_telemetry()
 
-        row2 = QHBoxLayout()
-        btn_m2 = QPushButton("  - 5%  ")
-        btn_m2.setObjectName("BtnAdjust")
-        btn_m2.setFixedHeight(30)
-        btn_m2.clicked.connect(lambda: self.adjust_stop(-5))
+    # Wi-Fi ------------------------------------------------------------------
+    def build_tab_wifi(self, page):
+        box = QVBoxLayout(page)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.setSpacing(4)
 
-        self.lbl_stop_cutoff_val = QLabel("65 %")
-        self.lbl_stop_cutoff_val.setFont(QFont("DejaVu Sans", 16, QFont.Bold))
-        self.lbl_stop_cutoff_val.setAlignment(Qt.AlignCenter)
-        self.lbl_stop_cutoff_val.setStyleSheet("color: #ffffff; background: #0b1120; border-radius: 6px;")
+        top = QHBoxLayout()
+        top.setSpacing(6)
+        self.lbl_wifi = label("Wi-Fi", 13, C["leaf"], bold=True)
+        top.addWidget(self.lbl_wifi, stretch=1)
+        btn_scan = button(icon="refresh", w=48, h=38)
+        btn_scan.clicked.connect(lambda: self.refresh_wifi(rescan=True))
+        top.addWidget(btn_scan)
+        box.addLayout(top)
 
-        btn_p2 = QPushButton("  + 5%  ")
-        btn_p2.setObjectName("BtnAdjust")
-        btn_p2.setFixedHeight(30)
-        btn_p2.clicked.connect(lambda: self.adjust_stop(+5))
+        self.wifi_rows = []
+        for _ in range(self.WIFI_PAGE_SIZE):
+            b = QPushButton()
+            b.setFocusPolicy(Qt.NoFocus)
+            b.setFixedHeight(40)
+            row = QHBoxLayout(b)
+            row.setContentsMargins(10, 0, 10, 0)
+            row.setSpacing(8)
+            ic = QLabel()
+            ic.setFixedSize(20, 20)
+            name = label("", 13, C["text"], bold=True)
+            lock = QLabel()
+            lock.setFixedSize(16, 16)
+            sig = label("", 12, C["muted"])
+            row.addWidget(ic)
+            row.addWidget(name, stretch=1)
+            row.addWidget(lock)
+            row.addWidget(sig)
+            passthrough(ic, name, lock, sig)
+            b.clicked.connect(lambda _, i=len(self.wifi_rows): self.on_wifi_row(i))
+            self.wifi_rows.append((b, ic, name, lock, sig))
+            box.addWidget(b)
 
-        row2.addWidget(btn_m2)
-        row2.addWidget(self.lbl_stop_cutoff_val, stretch=2)
-        row2.addWidget(btn_p2)
-        c2_box.addWidget(lbl2)
-        c2_box.addLayout(row2)
-        layout.addWidget(card2)
+        pager = QHBoxLayout()
+        pager.setSpacing(6)
+        self.btn_wifi_prev = button(icon="back", w=56, h=36)
+        self.btn_wifi_next = button(icon="next", w=56, h=36)
+        self.lbl_wifi_page = label("", 12, C["muted"], align=Qt.AlignCenter)
+        self.btn_wifi_prev.clicked.connect(lambda: self.page_wifi(-1))
+        self.btn_wifi_next.clicked.connect(lambda: self.page_wifi(1))
+        pager.addWidget(self.btn_wifi_prev)
+        pager.addWidget(self.lbl_wifi_page, stretch=1)
+        pager.addWidget(self.btn_wifi_next)
+        box.addStretch()
+        box.addLayout(pager)
 
-        layout.addStretch()
-
-    # --- TAB 2: WI-FI CONTROLS ---
-    def init_tab_wifi(self):
-        layout = QVBoxLayout(self.tab_wifi)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.setSpacing(4)
-
-        # Current Connection Banner
-        cur_card = QFrame()
-        cur_card.setObjectName("BlynkCard")
-        c_layout = QHBoxLayout(cur_card)
-        c_layout.setContentsMargins(8, 4, 8, 4)
-
-        self.lbl_wifi_status = QLabel("Wi-Fi: Scanning...")
-        self.lbl_wifi_status.setFont(QFont("DejaVu Sans", 8, QFont.Bold))
-        self.lbl_wifi_status.setStyleSheet("color: #38bdf8;")
-
-        btn_rescan = QPushButton("🔄 Rescan")
-        btn_rescan.setFixedHeight(24)
-        btn_rescan.setStyleSheet("font-size: 9px; padding: 2px 6px;")
-        btn_rescan.clicked.connect(self.scan_and_populate_wifi)
-
-        c_layout.addWidget(self.lbl_wifi_status)
-        c_layout.addStretch()
-        c_layout.addWidget(btn_rescan)
-        layout.addWidget(cur_card)
-
-        # Scanned Networks List (Scrollable)
-        lbl_list = QLabel("Available Networks (Tap to connect):")
-        lbl_list.setFont(QFont("DejaVu Sans", 7, QFont.Bold))
-        lbl_list.setStyleSheet("color: #94a3b8;")
-        layout.addWidget(lbl_list)
-
-        self.scroll_wifi = QScrollArea()
-        self.scroll_wifi.setWidgetResizable(True)
-        self.scroll_wifi.setStyleSheet("QScrollArea { border: 1px solid #1e293b; background: #0b1120; border-radius: 6px; }")
-
-        self.wifi_list_container = QWidget()
-        self.wifi_list_layout = QVBoxLayout(self.wifi_list_container)
-        self.wifi_list_layout.setContentsMargins(4, 4, 4, 4)
-        self.wifi_list_layout.setSpacing(3)
-        self.scroll_wifi.setWidget(self.wifi_list_container)
-
-        layout.addWidget(self.scroll_wifi, stretch=1)
-
-    def refresh_wifi_ui(self):
+    def refresh_wifi(self, rescan=False):
         curr = wifi_manager.get_current_wifi()
         if curr["connected"]:
-            self.lbl_wifi_status.setText(f"Connected: {curr['ssid']} ({curr['signal']}%)")
+            self.lbl_wifi.setText(f"{curr['ssid']}  ·  {curr['signal']}%")
+            self.lbl_wifi.setStyleSheet(f"color: {C['leaf']};")
         else:
-            self.lbl_wifi_status.setText("Wi-Fi: Disconnected")
-        self.scan_and_populate_wifi()
+            self.lbl_wifi.setText("Not connected")
+            self.lbl_wifi.setStyleSheet(f"color: {C['alert']};")
+        if rescan:
+            self.lbl_wifi_page.setText("Scanning…")
+            QApplication.processEvents()
+            self.wifi_networks = wifi_manager.scan_wifi_networks()
+            self.wifi_page = 0
+        self.render_wifi_page()
 
-    def scan_and_populate_wifi(self):
-        # Clear list
-        while self.wifi_list_layout.count():
-            item = self.wifi_list_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+    def page_wifi(self, delta):
+        pages = max(1, math.ceil(len(self.wifi_networks) / self.WIFI_PAGE_SIZE))
+        self.wifi_page = max(0, min(pages - 1, self.wifi_page + delta))
+        self.render_wifi_page()
 
-        networks = wifi_manager.scan_wifi_networks()
-        for net in networks[:8]:  # Show top 8
-            ssid = net["ssid"]
-            sig = net["signal"]
-            active = net["active"]
-
-            btn = QPushButton(f"{'● ' if active else ''}{ssid}  ({sig}%)")
-            btn.setFixedHeight(28)
-            btn.setStyleSheet(f"text-align: left; padding-left: 8px; font-size: 10px; {'color: #10b981; border-color: #10b981;' if active else ''}")
-            btn.clicked.connect(lambda _, s=ssid: self.prompt_wifi_connect(s))
-            self.wifi_list_layout.addWidget(btn)
-
-        self.wifi_list_layout.addStretch()
-
-    def prompt_wifi_connect(self, ssid: str):
-        """Opens On-Screen Keyboard to enter Wi-Fi password."""
-        password = get_text_input(
-            parent=self,
-            prompt=f"Enter Wi-Fi Password for '{ssid}':",
-            default="",
-            is_password=True
-        )
-        if password is not None:
-            # User clicked Done on keyboard
-            self.lbl_wifi_status.setText(f"Connecting to {ssid}...")
-            res = wifi_manager.connect_wifi(ssid, password)
-            if res["success"]:
-                self.lbl_wifi_status.setText(f"Connected to {ssid}!")
+    def render_wifi_page(self):
+        pages = max(1, math.ceil(len(self.wifi_networks) / self.WIFI_PAGE_SIZE))
+        start = self.wifi_page * self.WIFI_PAGE_SIZE
+        chunk = self.wifi_networks[start:start + self.WIFI_PAGE_SIZE]
+        for i, (b, ic, name, lock, sig) in enumerate(self.wifi_rows):
+            if i < len(chunk):
+                net = chunk[i]
+                strength = C["leaf"] if net["signal"] >= 60 else C["sun"] if net["signal"] >= 30 else C["alert"]
+                ic.setPixmap(qt_pixmap("wifi", strength, 20))
+                name.setText(net["ssid"][:22])
+                name.setStyleSheet(f"color: {C['leaf'] if net['active'] else C['text']};")
+                secured = net.get("security", "") not in ("", "--")
+                if secured:
+                    lock.setPixmap(qt_pixmap("lock", C["muted"], 16))
+                else:
+                    lock.clear()
+                sig.setText(f"{net['signal']}%")
+                set_tone(b, "selected" if net["active"] else None)
+                b.setEnabled(True)
+                b.show()
             else:
-                self.lbl_wifi_status.setText(f"Connect failed: {res['message'][:24]}")
-            self.refresh_wifi_ui()
+                b.hide()
+        if not self.wifi_networks:
+            self.lbl_wifi_page.setText("No networks found")
+        else:
+            self.lbl_wifi_page.setText(f"{self.wifi_page + 1} / {pages}")
+        self.btn_wifi_prev.setEnabled(self.wifi_page > 0)
+        self.btn_wifi_next.setEnabled(self.wifi_page < pages - 1)
 
-    # --- TAB 3: DEVICE & SETUP ---
-    def init_tab_device(self):
-        layout = QVBoxLayout(self.tab_device)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.setSpacing(4)
+    def on_wifi_row(self, i):
+        idx = self.wifi_page * self.WIFI_PAGE_SIZE + i
+        if idx >= len(self.wifi_networks):
+            return
+        ssid = self.wifi_networks[idx]["ssid"]
+        password = get_text_input(parent=self, prompt=f"Password for {ssid}", is_password=True)
+        if password is None:
+            return
+        self.lbl_wifi.setText(f"Connecting to {ssid}…")
+        self.lbl_wifi.setStyleSheet(f"color: {C['sun']};")
+        QApplication.processEvents()
+        res = wifi_manager.connect_wifi(ssid, password)
+        if not res["success"]:
+            self.lbl_wifi.setText(f"Failed: {res['message'][:28]}")
+            self.lbl_wifi.setStyleSheet(f"color: {C['alert']};")
+            return
+        self.refresh_wifi(rescan=True)
 
-        diag_card = QFrame()
-        diag_card.setObjectName("BlynkCard")
-        d_box = QVBoxLayout(diag_card)
-        d_box.setContentsMargins(8, 6, 8, 6)
-        d_box.setSpacing(3)
+    # Device -----------------------------------------------------------------
+    def build_tab_device(self, page):
+        box = QVBoxLayout(page)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.setSpacing(6)
+        info = card()
+        grid = QGridLayout(info)
+        grid.setContentsMargins(10, 8, 10, 8)
+        grid.setHorizontalSpacing(8)
+        grid.setVerticalSpacing(5)
+        self.device_values = {}
+        rows = [
+            ("ip_address", "wifi", "Address"),
+            ("cpu_temp", "thermo", "CPU temp"),
+            ("ram_usage", "chip", "Memory"),
+            ("disk_usage", "disk", "Storage"),
+            ("uptime", "clock", "Uptime"),
+            ("arduino_mega", "plug", "Arduino"),
+        ]
+        for r, (key, icon, title) in enumerate(rows):
+            grid.addWidget(icon_label(icon, C["muted"], 18), r, 0)
+            grid.addWidget(label(title, 12, C["muted"]), r, 1)
+            v = label("…", 12, C["text"], bold=True)
+            grid.addWidget(v, r, 2)
+            self.device_values[key] = v
+        grid.setColumnStretch(2, 1)
+        box.addWidget(info)
 
-        lbl_header = QLabel("DEVICE DIAGNOSTICS & SYSTEM SETUP")
-        lbl_header.setFont(QFont("DejaVu Sans", 8, QFont.Bold))
-        lbl_header.setStyleSheet("color: #38bdf8;")
-        d_box.addWidget(lbl_header)
+        actions = QHBoxLayout()
+        actions.setSpacing(8)
+        btn_restart = button("Restart app", icon="refresh", h=44)
+        btn_restart.clicked.connect(lambda: run_privileged(["systemctl", "restart", "iot-dashboard.service"]))
+        self.btn_reboot = button("Reboot Pi", icon="power", icon_color=C["alert"], tone="danger", h=44)
+        self.btn_reboot.clicked.connect(self.on_reboot)
+        actions.addWidget(btn_restart)
+        actions.addWidget(self.btn_reboot)
+        box.addLayout(actions)
+        box.addStretch()
 
-        self.lbl_diag_temp = QLabel("CPU Temp: Loading...")
-        self.lbl_diag_ram = QLabel("RAM: Loading...")
-        self.lbl_diag_disk = QLabel("Storage: Loading...")
-        self.lbl_diag_uptime = QLabel("Uptime: Loading...")
-
-        for lbl in [self.lbl_diag_temp, self.lbl_diag_ram, self.lbl_diag_disk, self.lbl_diag_uptime]:
-            lbl.setFont(QFont("DejaVu Sans", 8))
-            lbl.setStyleSheet("color: #cbd5e1;")
-            d_box.addWidget(lbl)
-
-        layout.addWidget(diag_card)
-
-        # System Actions
-        btn_row = QHBoxLayout()
-        btn_row.setSpacing(6)
-
-        btn_restart_gui = QPushButton("🔄 Restart GUI")
-        btn_restart_gui.setFixedHeight(30)
-        btn_restart_gui.clicked.connect(self.action_restart_gui)
-
-        btn_reboot_pi = QPushButton("⚠️ Reboot Pi")
-        btn_reboot_pi.setFixedHeight(30)
-        btn_reboot_pi.setStyleSheet("background: #7f1d1d; border-color: #ef4444; color: #ffffff;")
-        btn_reboot_pi.clicked.connect(self.action_reboot_pi)
-
-        btn_row.addWidget(btn_restart_gui)
-        btn_row.addWidget(btn_reboot_pi)
-        layout.addLayout(btn_row)
-        layout.addStretch()
-
-    def refresh_device_ui(self):
+    def refresh_device(self):
         diag = hardware.get_system_diagnostics()
-        self.lbl_diag_temp.setText(f"🌡️ CPU Temp: {diag['cpu_temp']}")
-        self.lbl_diag_ram.setText(f"🧠 Memory: {diag['ram_usage']}")
-        self.lbl_diag_disk.setText(f"💾 Storage: {diag['disk_usage']}")
-        self.lbl_diag_uptime.setText(f"⏱️ Uptime: {diag['uptime']}")
+        diag["arduino_mega"] = "Connected" if hardware.is_hardware_online else "Not connected"
+        diag["ram_usage"] = diag["ram_usage"].split(" (")[0]
+        diag["disk_usage"] = diag["disk_usage"].split(" (")[0]
+        for key, lbl in self.device_values.items():
+            lbl.setText(str(diag.get(key, "N/A")))
 
-    def action_restart_gui(self):
-        print("[System] Restarting dashboard application...")
-        run_privileged(["systemctl", "restart", "iot-dashboard.service"])
-
-    def action_reboot_pi(self):
-        print("[System] Rebooting Raspberry Pi...")
+    def on_reboot(self):
+        # Two taps needed: first arms, second reboots
+        if not self.reboot_armed:
+            self.reboot_armed = True
+            self.btn_reboot.setText("Tap to confirm")
+            self.btn_reboot.setIcon(qt_icon("power", C["bg"], 22))
+            set_tone(self.btn_reboot, "danger-armed")
+            QTimer.singleShot(4000, self.disarm_reboot)
+            return
+        self.btn_reboot.setText("Rebooting…")
         run_privileged(["reboot"])
 
-    # --- TAB 4: HARDWARE & ARDUINO MEGA CONNECTIONS INFO ---
-    def init_tab_info(self):
-        layout = QVBoxLayout(self.tab_info)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.setSpacing(4)
+    def disarm_reboot(self):
+        if getattr(self, "reboot_armed", False):
+            self.reboot_armed = False
+            self.btn_reboot.setText("Reboot Pi")
+            self.btn_reboot.setIcon(qt_icon("power", C["alert"], 22))
+            set_tone(self.btn_reboot, "danger")
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("QScrollArea { border: 1px solid #1e293b; background: #0b1120; border-radius: 6px; }")
-
-        container = QWidget()
-        c_layout = QVBoxLayout(container)
-        c_layout.setContentsMargins(6, 6, 6, 6)
-        c_layout.setSpacing(4)
-
-        # Header card
-        lbl_head = QLabel("🔌 ARDUINO MEGA 2560 WIRING & PINOUT")
-        lbl_head.setFont(QFont("DejaVu Sans", 8, QFont.Bold))
-        lbl_head.setStyleSheet("color: #38bdf8; padding: 2px 0px;")
-        c_layout.addWidget(lbl_head)
-
-        lbl_sub = QLabel("Serial Link: Raspberry Pi 4 USB (/dev/ttyACM0 @ 115200 baud)")
-        lbl_sub.setFont(QFont("DejaVu Sans", 7))
-        lbl_sub.setStyleSheet("color: #94a3b8;")
-        c_layout.addWidget(lbl_sub)
-
-        # Pinout items
-        pinout_data = [
-            ("🌱 Soil Moisture", "Pin A0 (Analog)", "VCC: 5V | GND: GND | Output: 0-100%"),
-            ("🌧️ Rain Drop Sensor", "Pin A1 (Analog)", "VCC: 5V | GND: GND | Wet < 600"),
-            ("☀️ LDR Light Sensor", "Pin A2 (Analog)", "VCC: 5V | GND: GND | Sunlight lvl"),
-            ("💧 Water Tank Level", "Pin A3 (Analog)", "VCC: 5V | GND: GND | Depth/Float"),
-            ("🌡️ DHT11 / DHT22", "Pin 2 (Digital)", "VCC: 5V | GND: GND | 1-Wire Data"),
-            ("⚡ Water Pump Relay", "Pin 8 (Digital)", "Signal IN (Active LOW) to Relay"),
-            ("💡 Heartbeat LED", "Pin 13 (Builtin)", "Blinks on pump & serial activity")
+    # Wiring info ------------------------------------------------------------
+    def build_tab_info(self, page):
+        box = QVBoxLayout(page)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.setSpacing(6)
+        pins = card()
+        grid = QGridLayout(pins)
+        grid.setContentsMargins(10, 6, 10, 6)
+        grid.setHorizontalSpacing(8)
+        grid.setVerticalSpacing(1)
+        rows = [
+            ("sprout", C["leaf"], "Soil moisture", "A0"),
+            ("rain", C["water"], "Rain sensor", "A1"),
+            ("sun", C["light"], "Light (LDR)", "A2"),
+            ("tank", C["tank"], "Ultrasonic TRIG", "D9"),
+            ("tank", C["tank"], "Ultrasonic ECHO", "D10"),
+            ("thermo", C["sun"], "DHT11 / DHT22", "D2"),
+            ("power", C["alert"], "Pump relay (active LOW)", "D8"),
+            ("chip", C["muted"], "Status LED", "D13"),
         ]
+        for r, (icon, col, name, pin) in enumerate(rows):
+            grid.addWidget(icon_label(icon, col, 18), r, 0)
+            grid.addWidget(label(name, 12, C["text"]), r, 1)
+            grid.addWidget(label(pin, 13, C["leaf"], bold=True, align=Qt.AlignRight | Qt.AlignVCenter), r, 2)
+        grid.setColumnStretch(1, 1)
+        box.addWidget(pins)
+        note = label("Mega ↔ Pi over USB (/dev/ttyACM0, 115200). Relay COM → pump supply +, "
+                     "NO → pump +. Join pump supply GND to Mega GND.", 11, C["muted"])
+        note.setWordWrap(True)
+        box.addWidget(note)
+        box.addStretch()
 
-        for comp, pin, desc in pinout_data:
-            card = QFrame()
-            card.setObjectName("BlynkCard")
-            card.setStyleSheet("background-color: #131d31; border: 1px solid #1e293b; border-radius: 6px; padding: 3px;")
-            box = QHBoxLayout(card)
-            box.setContentsMargins(6, 3, 6, 3)
-
-            lbl_comp = QLabel(comp)
-            lbl_comp.setFont(QFont("DejaVu Sans", 8, QFont.Bold))
-            lbl_comp.setStyleSheet("color: #f8fafc;")
-
-            lbl_pin = QLabel(pin)
-            lbl_pin.setFont(QFont("DejaVu Sans", 8, QFont.Bold))
-            lbl_pin.setStyleSheet("color: #10b981;")
-
-            lbl_desc = QLabel(desc)
-            lbl_desc.setFont(QFont("DejaVu Sans", 7))
-            lbl_desc.setStyleSheet("color: #94a3b8;")
-
-            box.addWidget(lbl_comp, stretch=2)
-            box.addWidget(lbl_pin, stretch=2)
-            box.addWidget(lbl_desc, stretch=3)
-            c_layout.addWidget(card)
-
-        # Relay Wiring Note Card
-        note_card = QFrame()
-        note_card.setStyleSheet("background-color: #1a1625; border: 1px solid #7c3aed; border-radius: 6px; padding: 4px;")
-        n_box = QVBoxLayout(note_card)
-        n_box.setContentsMargins(6, 4, 6, 4)
-        n_box.setSpacing(2)
-
-        lbl_note_t = QLabel("⚠️ WATER PUMP RELAY SAFETY WIRING")
-        lbl_note_t.setFont(QFont("DejaVu Sans", 8, QFont.Bold))
-        lbl_note_t.setStyleSheet("color: #c084fc;")
-
-        lbl_note_b = QLabel(
-            "• COM: Connect to External 12V / 5V Pump Power (+)\n"
-            "• NO (Normally Open): Connect to Pump Positive (+)\n"
-            "• Pump Negative (-): Directly to External Power (-)\n"
-            "• Connect External Power GND to Arduino Mega GND for common ground."
-        )
-        lbl_note_b.setFont(QFont("DejaVu Sans", 7))
-        lbl_note_b.setStyleSheet("color: #e2e8f0;")
-
-        n_box.addWidget(lbl_note_t)
-        n_box.addWidget(lbl_note_b)
-        c_layout.addWidget(note_card)
-
-        scroll.setWidget(container)
-        layout.addWidget(scroll)
-
-    # =========================================================================
-    # USER ACTIONS
-    # =========================================================================
-    def on_motor_click(self):
+    # ---------------------------------------------------------------- actions
+    def on_pump(self):
         hardware.toggle_pump()
         self.update_telemetry()
 
-    def on_mode_toggle(self):
-        new_mode = hardware.toggle_mode()
-        self.btn_mode_toggle.setText(f"MODE: {new_mode}")
+    def set_mode(self, mode):
+        if hardware.pump_mode != mode:
+            hardware.toggle_mode()
         self.update_telemetry()
 
-    def adjust_dry(self, delta: float):
-        val = hardware.adjust_dry_cutoff(delta)
-        self.lbl_dry_cutoff_val.setText(f"{int(val)} %")
-        self.update_telemetry()
-
-    def adjust_stop(self, delta: float):
-        val = hardware.adjust_stop_cutoff(delta)
-        self.lbl_stop_cutoff_val.setText(f"{int(val)} %")
-        self.update_telemetry()
-
-    # =========================================================================
-    # TELEMETRY REFRESH
-    # =========================================================================
+    # ------------------------------------------------------------- telemetry
     def update_telemetry(self):
-        data = hardware.get_telemetry()
+        d = hardware.get_telemetry()
+        sim, online = d["simulator_mode"], d["hardware_connected"]
+        live = sim or online
 
-        # Update Clock
-        self.lbl_clock.setText(data["timestamp"])
-
-        # Update Simulator / Threshold / Connection Badge & Button
-        dry_cut = int(data["dry_cutoff"])
-        stop_cut = int(data["stop_cutoff"])
-        hw_online = data.get("hardware_connected", False)
-        sim_mode = data.get("simulator_mode", False)
-
-        if sim_mode:
-            self.lbl_crop_badge.setText(f"🎮 SIMULATOR ({dry_cut}%-{stop_cut}%)")
-            self.lbl_crop_badge.setStyleSheet("color: #38bdf8; background: #0c2340; border: 1px solid #0284c7; border-radius: 4px; padding: 2px 6px;")
-            self.btn_quick_sim.setText("🎮 SIM: ON")
-            self.btn_quick_sim.setStyleSheet("background: #064e3b; border: 1px solid #10b981; font-size: 9px; color: #34d399; font-weight: bold;")
-        elif hw_online:
-            self.lbl_crop_badge.setText(f"● ONLINE ({dry_cut}%-{stop_cut}%)")
-            self.lbl_crop_badge.setStyleSheet("color: #34d399; background: #064e3b; border-radius: 4px; padding: 2px 6px;")
-            self.btn_quick_sim.setText("🎮 Simulator")
-            self.btn_quick_sim.setStyleSheet("background: #0f172a; border: 1px solid #334155; font-size: 9px; color: #38bdf8;")
+        self.lbl_clock.setText(d["timestamp"][:5])
+        if sim:
+            status, col, bg = "SIMULATOR", C["sun"], "#3a2c12"
+        elif online:
+            status, col, bg = "ONLINE", C["leaf"], C["leaf_bg"]
         else:
-            self.lbl_crop_badge.setText("⚠️ NOT CONNECTED")
-            self.lbl_crop_badge.setStyleSheet("color: #ffffff; background: #7f1d1d; border: 1px solid #ef4444; border-radius: 4px; padding: 2px 6px;")
-            self.btn_quick_sim.setText("🎮 Simulator")
-            self.btn_quick_sim.setStyleSheet("background: #0f172a; border: 1px solid #334155; font-size: 9px; color: #38bdf8;")
+            status, col, bg = "OFFLINE", C["alert"], C["alert_bg"]
+        pill = f"color: {col}; background: {bg}; border-radius: 12px; padding: 4px 10px;"
+        for lbl in (self.lbl_status, self.lbl_settings_status):
+            lbl.setText(f"● {status}")
+            lbl.setStyleSheet(pill)
 
-        # Update Temperature (Real value or NOT CONNECTED)
-        temp_val = data.get("temperature_c")
-        if temp_val is not None:
-            self.lbl_temp_val.setText(f"{temp_val:.1f}")
-            self.lbl_temp_sub.setText(f"°C  |  {data['temperature_f']} °F")
-            self.bar_temp.setValue(min(50, max(0, int(temp_val))))
+        # Soil gauge
+        soil, dry, stop = d["soil_moisture"], d["dry_cutoff"], d["stop_cutoff"]
+        if soil is None:
+            caption, gcol = "No signal", C["dim"]
+        elif soil < dry:
+            caption, gcol = "Too dry", C["sun"]
+        elif soil > stop:
+            caption, gcol = "Wet", C["water"]
         else:
-            self.lbl_temp_val.setText("--.-")
-            self.lbl_temp_sub.setText("NOT CONNECTED")
-            self.bar_temp.setValue(0)
+            caption, gcol = "Good", C["leaf"]
+        self.gauge.set_state(soil, dry, stop, gcol, caption)
+        crop_name = "Custom" if d["selected_crop"] == "custom" else d["crop_name"].split(" / ")[0]
+        self.btn_crop.setText(f"{crop_name}  ·  {dry:.0f}–{stop:.0f}%")
+        self.btn_crop.setIcon(qt_icon("sprout", CROP_COLORS.get(d["selected_crop"], C["muted"]), 16))
 
-        # Update Humidity (Real value or NOT CONNECTED)
-        hum_val = data.get("humidity")
-        if hum_val is not None:
-            self.lbl_hum_val.setText(f"{hum_val:.1f}")
-            self.lbl_hum_sub.setText("% RH (Normal)")
-            self.bar_hum.setValue(min(100, max(0, int(hum_val))))
+        # Tiles
+        no_sensor = "No sensor" if online and not sim else "Offline"
+        t = d["temperature_c"]
+        if t is not None:
+            self.tile_temp.set(f"{t:.1f}", "°C", f"{d['temperature_f']:.0f} °F")
         else:
-            self.lbl_hum_val.setText("--.-")
-            self.lbl_hum_sub.setText("NOT CONNECTED")
-            self.bar_hum.setValue(0)
-
-        # Update Soil Moisture (Real value or NOT CONNECTED)
-        soil_val = data.get("soil_moisture")
-        if soil_val is not None:
-            self.lbl_soil_val.setText(f"{soil_val:.1f}")
-            self.bar_soil.setValue(min(100, max(0, int(soil_val))))
-            self.lbl_soil_badge.setText(data["soil_condition"])
-            self.lbl_soil_badge.setStyleSheet(f"color: {data['soil_color']}; font-weight: bold;")
+            self.tile_temp.set("--", sub=no_sensor, sub_color=C["alert"] if online else C["dim"])
+        h = d["humidity"]
+        if h is not None:
+            self.tile_hum.set(f"{h:.0f}", "%", "Air humidity")
         else:
-            self.lbl_soil_val.setText("--.-")
-            self.bar_soil.setValue(0)
-            self.lbl_soil_badge.setText("NOT CONNECTED")
-            self.lbl_soil_badge.setStyleSheet("color: #ef4444; font-weight: bold;")
+            self.tile_hum.set("--", sub=no_sensor, sub_color=C["alert"] if online else C["dim"])
 
-        # Cutoffs info in Main View
-        if hw_online or sim_mode:
-            self.lbl_cutoff_summary.setText(f"Cutoff: Start < {dry_cut}% | Stop >= {stop_cut}%")
+        off_sub = "Live only" if sim else "Offline"
+        wl, wcm = d.get("water_level"), d.get("water_cm")
+        if wl is not None:
+            low = wl < 20
+            self.tile_tank.set(f"{wl}", "%", "Refill tank" if low else f"{wcm:.0f} cm to water",
+                               sub_color=C["alert"] if low else None)
+        elif online and not sim:
+            self.tile_tank.set("--", sub="No echo", sub_color=C["alert"])
         else:
-            self.lbl_cutoff_summary.setText("⚠️ Arduino Mega Disconnected (/dev/ttyACM0)")
-        self.lbl_dry_cutoff_val.setText(f"{dry_cut} %")
-        self.lbl_stop_cutoff_val.setText(f"{stop_cut} %")
+            self.tile_tank.set("--", sub=off_sub, sub_color=C["dim"])
 
-        # Small Corner Motor Button
-        if data["pump_on"]:
-            self.btn_motor.setObjectName("BtnCornerPumpOn")
-            self.btn_motor.setText("⚡ MOTOR: ON")
-            self.card_soil.setStyleSheet("QFrame#BlynkCard { border: 1.5px solid #10b981; }")
+        # Tank settings page
+        self.step_tank_height.set_value(d["tank_empty_cm"])
+        self.step_tank_gap.set_value(d["tank_full_cm"])
+        if wl is not None:
+            self.lbl_tank_level.setText(f"{wl} % full")
+            self.lbl_tank_dist.setText(f"{wcm:.0f} cm to water")
         else:
-            self.btn_motor.setObjectName("BtnCornerPumpOff")
-            self.btn_motor.setText("💧 MOTOR: OFF")
-            self.card_soil.setStyleSheet("QFrame#BlynkCard { border: 1.5px solid #1e293b; }")
+            self.lbl_tank_level.setText("--")
+            self.lbl_tank_dist.setText("No sensor reading" if online and not sim else "Offline")
+        rain, light = d.get("rain"), d.get("light")
+        if rain is not None:
+            raining = bool(rain)
+            self.tile_weather.set("Rain" if raining else "Dry", "", f"Light {light}%",
+                                  icon="rain" if raining else "sun",
+                                  icon_color=C["water"] if raining else C["light"])
+        else:
+            self.tile_weather.set("--", sub=off_sub, sub_color=C["dim"], icon="sun", icon_color=C["light"])
 
-        self.btn_motor.style().unpolish(self.btn_motor)
-        self.btn_motor.style().polish(self.btn_motor)
+        # Pump + mode
+        if d["pump_on"]:
+            self.btn_pump.setText("PUMP ON")
+            self.btn_pump.setIcon(qt_icon("power", C["bg"], 24))
+            set_tone(self.btn_pump, "primary")
+        else:
+            self.btn_pump.setText("PUMP OFF")
+            self.btn_pump.setIcon(qt_icon("power", C["muted"], 24))
+            set_tone(self.btn_pump, None)
+        auto = d["pump_mode"] == "AUTO"
+        set_tone(self.btn_auto, "selected" if auto else None)
+        set_tone(self.btn_manual, None if auto else "selected")
+        self.btn_auto.setIcon(qt_icon("auto", C["leaf"] if auto else C["muted"], 22))
+        self.btn_manual.setIcon(qt_icon("hand", C["muted"] if auto else C["leaf"], 22))
 
-        # Mode button
-        self.btn_mode_toggle.setText(f"MODE: {data['pump_mode']}")
+        # Settings pages that mirror live state
+        for key, b in self.crop_buttons.items():
+            set_tone(b, "selected" if key == d["selected_crop"] else None)
+        self.step_dry.set_value(dry)
+        self.step_stop.set_value(stop)
+        self.range_bar.set_state(dry, stop, soil)
+
+        self.btn_sim.setText("Simulator ON" if sim else "Simulator OFF")
+        self.btn_sim.setIcon(qt_icon("sliders", C["bg"] if sim else C["muted"], 22))
+        set_tone(self.btn_sim, "primary" if sim else None)
+        self.step_sim_t.set_value(d["sim_temp"])
+        self.step_sim_h.set_value(d["sim_humidity"])
+        self.step_sim_s.set_value(d["sim_soil_moisture"])
 
 
 def main():
     fullscreen = "--fullscreen" in sys.argv
     app = QApplication(sys.argv)
-    app.setStyleSheet(BLYNK_THEME)
-    window = IoTTouchDashboard(fullscreen=fullscreen)
+    app.setFont(px_font(13))
+    app.setStyleSheet(THEME)
+    IoTTouchDashboard(fullscreen=fullscreen)
     sys.exit(app.exec_())
 
 

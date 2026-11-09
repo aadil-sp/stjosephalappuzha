@@ -9,8 +9,19 @@ from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
     QPushButton, QWidget, QFrame
 )
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QSize
 from PyQt5.QtGui import QFont
+
+from icons import qt_icon
+
+
+def _icon_button(name, color="#93a394", size=20):
+    btn = QPushButton()
+    btn.setFocusPolicy(Qt.NoFocus)
+    btn.setIcon(qt_icon(name, color, size))
+    btn.setIconSize(QSize(size, size))
+    btn.setObjectName("BtnSpecial")
+    return btn
 
 
 class OnScreenKeyboardDialog(QDialog):
@@ -29,49 +40,48 @@ class OnScreenKeyboardDialog(QDialog):
 
         self.setStyleSheet("""
             QDialog {
-                background-color: #0b1120;
-                border: 2px solid #0284c7;
+                background-color: #0f1410;
+                border: 2px solid #8fd16a;
                 border-radius: 12px;
             }
             QLabel {
-                color: #38bdf8;
+                color: #eef3ea;
                 font-weight: bold;
-                font-size: 11px;
+                font-size: 14px;
+                background: transparent;
             }
             QLineEdit {
-                background-color: #1e293b;
-                color: #ffffff;
-                border: 1.5px solid #334155;
-                border-radius: 6px;
-                padding: 4px 8px;
-                font-size: 14px;
+                background-color: #172019;
+                color: #eef3ea;
+                border: 1px solid #2c3a2e;
+                border-radius: 8px;
+                padding: 4px 10px;
+                font-size: 16px;
                 font-weight: bold;
             }
             QPushButton {
-                background-color: #1e293b;
-                color: #f8fafc;
-                border: 1.5px solid #334155;
-                border-radius: 6px;
+                background-color: #1f2a21;
+                color: #eef3ea;
+                border: 1px solid #2c3a2e;
+                border-radius: 8px;
                 font-weight: bold;
-                font-size: 12px;
+                font-size: 15px;
+                padding: 0px;
             }
             QPushButton:pressed {
-                background-color: #0284c7;
-                border-color: #38bdf8;
-                color: #ffffff;
+                background-color: #8fd16a;
+                color: #0f1410;
             }
             QPushButton#BtnSpecial {
-                background-color: #0f172a;
-                color: #94a3b8;
-                border: 1px solid #334155;
-                font-size: 10px;
+                background-color: #172019;
+                color: #93a394;
+                font-size: 13px;
             }
             QPushButton#BtnDone {
-                background-color: #059669;
-                color: #ffffff;
-                border: 1.5px solid #10b981;
-                font-size: 12px;
-                font-weight: bold;
+                background-color: #8fd16a;
+                color: #0f1410;
+                border: 1px solid #8fd16a;
+                font-size: 14px;
             }
         """)
 
@@ -85,9 +95,8 @@ class OnScreenKeyboardDialog(QDialog):
         # Header: Prompt and Close (Cancel)
         top_row = QHBoxLayout()
         self.lbl_prompt = QLabel(self.prompt)
-        btn_close = QPushButton("✕")
-        btn_close.setFixedSize(26, 26)
-        btn_close.setObjectName("BtnSpecial")
+        btn_close = _icon_button("close")
+        btn_close.setFixedSize(40, 34)
         btn_close.clicked.connect(self.reject)
         top_row.addWidget(self.lbl_prompt)
         top_row.addStretch()
@@ -97,16 +106,16 @@ class OnScreenKeyboardDialog(QDialog):
         # Input Row
         input_row = QHBoxLayout()
         self.txt_input = QLineEdit(default_text)
+        self.txt_input.setFixedHeight(34)
         if self.is_password:
             self.txt_input.setEchoMode(QLineEdit.Password)
 
-        self.btn_toggle_echo = QPushButton("👁")
-        self.btn_toggle_echo.setFixedSize(32, 28)
-        self.btn_toggle_echo.setObjectName("BtnSpecial")
+        self.btn_toggle_echo = _icon_button("eye")
+        self.btn_toggle_echo.setFixedSize(44, 34)
         self.btn_toggle_echo.clicked.connect(self.toggle_echo)
 
-        self.btn_clear = QPushButton("⌫ Clear")
-        self.btn_clear.setFixedHeight(28)
+        self.btn_clear = QPushButton("Clear")
+        self.btn_clear.setFixedSize(64, 34)
         self.btn_clear.setObjectName("BtnSpecial")
         self.btn_clear.clicked.connect(self.txt_input.clear)
 
@@ -179,9 +188,8 @@ class OnScreenKeyboardDialog(QDialog):
         r3_box.setSpacing(3)
 
         if not self.is_symbols:
-            btn_shift = QPushButton("⇧" if not self.is_shift else "⬆")
+            btn_shift = _icon_button("shift", "#8fd16a" if self.is_shift else "#93a394")
             btn_shift.setFixedSize(48, 36)
-            btn_shift.setObjectName("BtnSpecial")
             btn_shift.clicked.connect(self.toggle_shift)
             r3_box.addWidget(btn_shift)
 
@@ -191,9 +199,8 @@ class OnScreenKeyboardDialog(QDialog):
             btn.clicked.connect(lambda _, c=char: self.insert_char(c))
             r3_box.addWidget(btn)
 
-        btn_backspace = QPushButton("⌫")
+        btn_backspace = _icon_button("backspace")
         btn_backspace.setFixedSize(48, 36)
-        btn_backspace.setObjectName("BtnSpecial")
         btn_backspace.clicked.connect(self.backspace)
         r3_box.addWidget(btn_backspace)
         self.kb_layout.addLayout(r3_box)
@@ -208,7 +215,7 @@ class OnScreenKeyboardDialog(QDialog):
         btn_mode.clicked.connect(self.toggle_symbols)
         r4_box.addWidget(btn_mode)
 
-        btn_space = QPushButton("␣ Space")
+        btn_space = QPushButton("space")
         btn_space.setFixedHeight(36)
         btn_space.clicked.connect(lambda: self.insert_char(" "))
         r4_box.addWidget(btn_space, stretch=2)
@@ -219,7 +226,7 @@ class OnScreenKeyboardDialog(QDialog):
         btn_cancel.clicked.connect(self.reject)
         r4_box.addWidget(btn_cancel)
 
-        btn_done = QPushButton("✓ Done")
+        btn_done = QPushButton("Done")
         btn_done.setFixedSize(80, 36)
         btn_done.setObjectName("BtnDone")
         btn_done.clicked.connect(self.finish)

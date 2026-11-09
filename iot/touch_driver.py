@@ -11,7 +11,7 @@ import threading
 from pathlib import Path
 from PyQt5.QtCore import QPoint, Qt, QEvent
 from PyQt5.QtGui import QMouseEvent
-from PyQt5.QtWidgets import QPushButton
+from PyQt5.QtWidgets import QAbstractButton, QApplication
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_CALIB_PATH = SCRIPT_DIR / "config" / "touch_calibration.json"
@@ -122,23 +122,24 @@ class HardwareTouchInjector(threading.Thread):
 def inject_qt_click(window, x: int, y: int):
     """
     Simulates a crisp touch click on the Qt widget under (x, y).
+    Taps go to an open modal dialog (e.g. the on-screen keyboard) when there is one.
     """
-    pos = QPoint(x, y)
-    widget = window.childAt(pos)
+    global_pos = window.mapToGlobal(QPoint(x, y))
+    top = QApplication.activeModalWidget() or window
+    pos = top.mapFromGlobal(global_pos)
+    widget = top.childAt(pos)
     if widget:
         target = widget
-        # Traverse up if child label inside QPushButton
-        while target and not isinstance(target, QPushButton) and target != window:
-            if isinstance(target.parent(), QPushButton):
-                target = target.parent()
-                break
+        # Traverse up if child label inside a button
+        while target and not isinstance(target, QAbstractButton) and target != top:
             target = target.parent()
 
-        if isinstance(target, QPushButton):
-            target.animateClick(85)
+        if isinstance(target, QAbstractButton):
+            if target.isEnabled():
+                target.animateClick(85)
         else:
-            local_pos = widget.mapFromGlobal(window.mapToGlobal(pos))
-            press = QMouseEvent(QEvent.MouseButtonPress, local_pos, pos, Qt.LeftButton, Qt.LeftButton, Qt.NoModifier)
-            release = QMouseEvent(QEvent.MouseButtonRelease, local_pos, pos, Qt.LeftButton, Qt.LeftButton, Qt.NoModifier)
+            local_pos = widget.mapFromGlobal(global_pos)
+            press = QMouseEvent(QEvent.MouseButtonPress, local_pos, global_pos, Qt.LeftButton, Qt.LeftButton, Qt.NoModifier)
+            release = QMouseEvent(QEvent.MouseButtonRelease, local_pos, global_pos, Qt.LeftButton, Qt.LeftButton, Qt.NoModifier)
             widget.event(press)
             widget.event(release)

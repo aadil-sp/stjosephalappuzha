@@ -10,7 +10,7 @@
     --bg: #0f1410; --surface: #172019; --raised: #1f2a21; --line: #2c3a2e;
     --text: #eef3ea; --muted: #93a394; --dim: #5f6e60;
     --leaf: #8fd16a; --leaf-bg: #22331c; --water: #4cb8e0; --sun: #f4b04a;
-    --tank: #3fc1b0; --light: #f5d76e; --alert: #ef5d50; --alert-bg: #3a1a17; --sim-bg: #3a2c12;
+    --tank: #3fc1b0; --fert: #c38fe0; --light: #f5d76e; --alert: #ef5d50; --alert-bg: #3a1a17; --sim-bg: #3a2c12;
     --radius: 14px;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -143,9 +143,67 @@
   .pins b { color: var(--leaf); font-family: ui-monospace, "DejaVu Sans Mono", monospace; }
   .note { margin-top: 14px; color: var(--muted); font-size: 13px; }
 
+  /* Weather */
+  .wx { padding: 14px; display: grid; grid-template-columns: auto 1fr; gap: 6px 18px; align-items: center; }
+  .wx-now { display: flex; align-items: center; gap: 12px; }
+  .wx-now .ic { width: 52px; height: 52px; }
+  .wx-now b { font-size: 38px; font-weight: 800; letter-spacing: -0.02em; }
+  .wx-now span { display: block; color: var(--muted); font-size: 13px; }
+  .wx-days { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; text-align: center; }
+  .wx-days div { display: grid; justify-items: center; gap: 2px; font-size: 13px; }
+  .wx-days b { font-size: 13px; }
+  .wx-days .rain { color: var(--water); font-size: 12px; }
+
+  /* Today's advice + fertilizer pump */
+  .tanks { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .tankcard { padding: 14px; display: grid; gap: 10px; align-content: start; }
+  .adv { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; align-items: start; }
+  .adv .ic { grid-row: span 2; margin-top: 2px; }
+  .adv b { font-size: 17px; }
+  .adv span { color: var(--muted); font-size: 13px; }
+  .tips { color: var(--sun); font-size: 13px; margin: 0; padding-left: 18px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--raised);
+          font-weight: 700; font-size: 13px; }
+  .chip:hover { border-color: var(--dim); }
+  .dose-msg { font-size: 13px; color: var(--muted); min-height: 1.4em; }
+  .banner { display: flex; align-items: center; gap: 12px; padding: 12px 16px; margin-bottom: 16px;
+            border: 2px solid var(--alert); background: var(--alert-bg); border-radius: 14px; }
+  .banner .ic { color: var(--alert); flex: none; }
+  .banner { flex-wrap: wrap; }
+  .banner div { flex: 1 1 200px; }
+  .banner b { color: var(--alert); display: block; font-size: 17px; }
+  .banner span { color: var(--text); font-size: 13px; }
+  .btn.water { background: var(--water); color: var(--bg); border-color: var(--water); }
+  .btn.fert { background: var(--fert); color: var(--bg); border-color: var(--fert); }
+
+  /* Farm AI */
+  .ai { padding: 16px; margin-top: 16px; display: grid; gap: 14px; }
+  .ai h2 { margin: 0; font-size: 20px; color: var(--leaf); }
+  .ai .sum { color: var(--text); margin: 4px 0 0; }
+  .ai .plan { display: grid; gap: 4px; font-size: 14px; }
+  .ai .acts { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+  .ai .act { background: var(--raised); border-radius: 10px; padding: 10px 12px; font-size: 13px; color: var(--muted); }
+  .ai .act b { display: block; font-size: 14px; }
+  .ai .act i { font-style: normal; color: var(--dim); font-size: 12px; margin-left: 6px; }
+  .ai .tools { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .ai .tool { border: 1px solid var(--line); border-radius: 12px; padding: 12px; display: grid; gap: 8px; align-content: start; }
+  .ai .tool form { display: flex; gap: 6px; }
+  .ai .tool input, #ai-key { flex: 1; min-width: 0; min-height: 44px; padding: 0 12px; border-radius: 10px;
+                              border: 1px solid var(--line); background: var(--bg); color: var(--text); font: inherit; }
+  .ai .tool input:focus, #ai-key:focus { outline: 2px solid var(--leaf); outline-offset: 1px; }
+  .ai .out { font-size: 13px; color: var(--muted); white-space: pre-line; }
+  .ai .out b { color: var(--text); }
+  .ai .sugg { display: flex; gap: 8px; align-items: center; font-size: 13px; }
+  .ai .sugg span { flex: 1; color: var(--muted); }
+  .ai .sugg .btn { min-height: 34px; }
+  .ai .busy { color: var(--leaf); }
+  @media (max-width: 900px) { .ai .tools { grid-template-columns: 1fr; } }
+
   @media (max-width: 760px) {
     body { padding: 12px; }
-    .overview, .controls { grid-template-columns: 1fr; }
+    .overview, .controls, .tanks { grid-template-columns: 1fr; }
+    .wx { grid-template-columns: 1fr; }
     .tile .val { font-size: 28px; }
     .tile { min-height: 104px; }
     .brand small { display: none; }
@@ -162,11 +220,25 @@
   <header>
     <div class="brand">
       <svg class="ic"><use href="#i-leaf"/></svg>
-      <div><h1>Smart Farm</h1><small>St. Joseph's Alappuzha · Irrigation controller</small></div>
+      <div><h1>Smart Farm</h1><small>Alappuzha · Irrigation controller</small></div>
     </div>
     <span id="status" class="pill offline">OFFLINE</span>
     <span id="clock" class="clock">--:--</span>
   </header>
+
+  <div class="banner" id="tank-banner" role="alert" hidden>
+    <svg class="ic"><use href="#i-bell"/></svg>
+    <div><b>Rain tank is full</b><span id="tank-banner-text"></span></div>
+    <button class="btn primary" onclick="post('/api/tank/reset')"><svg class="ic"><use href="#i-check"/></svg>Released · Reset</button>
+  </div>
+
+  <section class="card wx" aria-label="Alappuzha weather">
+    <div class="wx-now">
+      <svg class="ic" id="wx-icon" style="color:var(--light)"><use href="#i-cloud"/></svg>
+      <div><b id="wx-temp">--°</b><span id="wx-label">Alappuzha · loading forecast…</span><span id="wx-extra"></span></div>
+    </div>
+    <div class="wx-days" id="wx-days"></div>
+  </section>
 
   <div class="overview">
     <section class="card gauge-card" aria-label="Soil moisture">
@@ -196,11 +268,11 @@
         <div class="val none">--</div><div class="sub">--</div>
       </section>
       <section class="card tile" id="t-tank">
-        <div class="row"><svg class="ic sm" style="color:var(--tank)"><use href="#i-tank"/></svg><span class="caps">Water tank</span></div>
+        <div class="row"><svg class="ic sm" style="color:var(--tank)"><use href="#i-tank"/></svg><span class="caps">Rain tank</span></div>
         <div class="val none">--</div><div class="sub">--</div>
       </section>
       <section class="card tile" id="t-weather">
-        <div class="row"><svg class="ic sm" id="w-icon" style="color:var(--light)"><use href="#i-sun"/></svg><span class="caps">Weather</span></div>
+        <div class="row"><svg class="ic sm" id="w-icon" style="color:var(--light)"><use href="#i-sun"/></svg><span class="caps">Field rain</span></div>
         <div class="val none">--</div><div class="sub">--</div>
       </section>
     </div>
@@ -208,13 +280,60 @@
 
   <div class="controls">
     <button class="btn" id="pump" onclick="post('/api/pump/toggle')">
-      <svg class="ic"><use href="#i-power"/></svg><span>PUMP OFF</span>
+      <svg class="ic"><use href="#i-power"/></svg><span>PUMP 1 OFF</span>
     </button>
     <div class="seg" role="group" aria-label="Irrigation mode">
       <button class="btn" id="mode-auto" onclick="setMode('AUTO')"><svg class="ic"><use href="#i-auto"/></svg>AUTO</button>
       <button class="btn" id="mode-manual" onclick="setMode('MANUAL')"><svg class="ic"><use href="#i-hand"/></svg>MANUAL</button>
     </div>
   </div>
+
+  <div class="tanks">
+    <section class="card tankcard" id="today" aria-label="Today's advice">
+      <div class="row"><svg class="ic sm" style="color:var(--leaf)"><use href="#i-calendar"/></svg><span class="caps">Today</span>
+        <span class="hint" id="adv-head" style="margin:0 0 0 auto"></span></div>
+      <div class="adv"><svg class="ic" style="color:var(--water)"><use href="#i-drop"/></svg><b id="adv-w-title">…</b><span id="adv-w-text"></span></div>
+      <div class="adv"><svg class="ic" style="color:var(--fert)"><use href="#i-flask"/></svg><b id="adv-f-title">…</b><span id="adv-f-text"></span></div>
+      <ul class="tips" id="adv-tips"></ul>
+    </section>
+    <section class="card tankcard" id="tc-fert">
+      <div class="row"><svg class="ic sm" style="color:var(--fert)"><use href="#i-flask"/></svg><span class="caps">Pump 2 · fertilizer</span>
+        <span class="hint" id="fert-today" style="margin:0 0 0 auto"></span></div>
+      <button class="btn" id="fert-pump" onclick="post('/api/fert/toggle')">
+        <svg class="ic"><use href="#i-power"/></svg><span>Pump 2 OFF</span></button>
+      <div class="chips" id="fert-chips"></div>
+      <button class="btn fert" id="fert-sugg" hidden onclick="runSuggested()"><svg class="ic"><use href="#i-play"/></svg><span></span></button>
+      <div class="dose-msg" id="fert-msg"></div>
+    </section>
+  </div>
+
+  <section class="card ai" id="farm-ai" aria-label="Farm AI">
+    <div class="row"><svg class="ic sm" style="color:#e07fb0"><use href="#i-sparkle"/></svg><span class="caps">Farm AI</span>
+      <span class="hint" id="ai-meta" style="margin:0 0 0 auto"></span>
+      <button class="btn" id="ai-refresh" onclick="aiRun('brief')" style="min-height:34px"><svg class="ic sm"><use href="#i-refresh"/></svg>Refresh</button></div>
+    <div id="ai-brief"><p class="hint" style="margin:0">Loading…</p></div>
+    <div class="tools">
+      <div class="tool">
+        <span class="caps">Crop profile</span>
+        <form onsubmit="aiCrop(event)"><input id="ai-crop-in" placeholder="Any crop, e.g. okra, banana" maxlength="60">
+          <button class="btn" type="submit">Predict</button></form>
+        <div class="out" id="ai-crop-out"></div>
+        <button class="btn primary" id="ai-crop-apply" hidden onclick="aiApply('crop')"><svg class="ic sm"><use href="#i-check"/></svg>Use as Custom crop</button>
+      </div>
+      <div class="tool">
+        <span class="caps">Settings check</span>
+        <button class="btn" onclick="aiRun('params')"><svg class="ic sm"><use href="#i-sparkle"/></svg>Check my settings</button>
+        <div class="out" id="ai-params-out"></div>
+        <div id="ai-params-list" style="display:grid;gap:6px"></div>
+      </div>
+      <div class="tool">
+        <span class="caps">Ask</span>
+        <form onsubmit="aiAsk(event)"><input id="ai-ask-in" placeholder="e.g. Is it safe to spray today?" maxlength="300">
+          <button class="btn" type="submit">Ask</button></form>
+        <div class="out" id="ai-ask-out"></div>
+      </div>
+    </div>
+  </section>
 
   <section class="card panel" id="settings">
     <div class="tabs" role="tablist">
@@ -260,8 +379,10 @@
     </div>
 
     <div class="tabpanel" id="p-tank" role="tabpanel" hidden>
-      <p class="hint">The ultrasonic sensor sits at the top of the tank and measures the distance down to the water.
-        Set the tank height (sensor to floor) and the gap left when the tank is full.</p>
+      <p class="hint">The rain tank has an ultrasonic sensor at the top measuring the distance down to the water.
+        Set the tank height (sensor to floor), the gap left when full, and the surface area, which turns
+        the level into litres (1 cm over 1000 cm² = 1 L; round tank: 0.785 × diameter²). When the level reaches
+        the alert level, the Pi and this page ask you to release the water.</p>
       <div class="stepper" style="margin-bottom:12px">
         <svg class="ic" style="color:var(--tank)"><use href="#i-tank"/></svg>
         <div class="lbl"><span>Now</span><b id="tank-now">--</b></div>
@@ -277,6 +398,16 @@
           <svg class="ic" style="color:var(--water)"><use href="#i-drop"/></svg>
           <div class="lbl"><span>Gap when full — sensor to water (cm)</span></div>
           <input class="num" type="number" id="tank-gap" min="2" max="400" step="1" required>
+        </label>
+        <label class="stepper">
+          <svg class="ic" style="color:var(--muted)"><use href="#i-ruler"/></svg>
+          <div class="lbl"><span>Surface area (cm²)</span></div>
+          <input class="num" type="number" id="tank-area" min="50" max="500000" step="1" required>
+        </label>
+        <label class="stepper">
+          <svg class="ic" style="color:var(--alert)"><use href="#i-bell"/></svg>
+          <div class="lbl"><span>Alert when full at (%)</span></div>
+          <input class="num" type="number" id="tank-alert" min="50" max="100" step="1" required>
         </label>
         <div class="actions">
           <button class="btn primary" type="submit"><svg class="ic"><use href="#i-check"/></svg>Save</button>
@@ -302,6 +433,9 @@
         <label class="stepper"><svg class="ic" style="color:var(--leaf)"><use href="#i-sprout"/></svg>
           <div class="lbl" style="flex:none;width:120px"><span>Soil moisture</span><b id="sim-s-val">--</b></div>
           <input type="range" id="sim-s" min="0" max="100" step="1"></label>
+        <label class="stepper"><svg class="ic" style="color:var(--tank)"><use href="#i-tank"/></svg>
+          <div class="lbl" style="flex:none;width:120px"><span>Rain tank</span><b id="sim-k-val">--</b></div>
+          <input type="range" id="sim-k" min="0" max="100" step="1"></label>
       </div>
     </div>
 
@@ -321,6 +455,40 @@
 
     <div class="tabpanel" id="p-device" role="tabpanel" hidden>
       <div class="facts" id="facts"></div>
+      <p class="hint"><b>Farm AI key.</b> Create a key at aistudio.google.com (Get API key) and paste it here.
+        It is saved on the Pi in <code>config/.env</code> and never shown again.</p>
+      <form class="steppers" style="margin-bottom:16px" onsubmit="saveAIKey(event)">
+        <label class="stepper"><svg class="ic" style="color:#e07fb0"><use href="#i-sparkle"/></svg>
+          <div class="lbl"><span>Gemini API key</span><b id="ai-key-state">--</b></div>
+          <input type="password" id="ai-key" placeholder="Paste key" autocomplete="off" style="flex:1;min-width:0"></label>
+        <div class="actions"><button class="btn primary" type="submit"><svg class="ic"><use href="#i-check"/></svg>Save key</button>
+          <button class="btn" type="button" onclick="removeAIKey()">Remove key</button></div>
+      </form>
+      <div class="msg" id="ai-key-msg" style="margin:-8px 0 16px"></div>
+      <p class="hint">Farm setup for today's advice. Measure a pump's flow by timing how long it takes to fill a 10 L bucket.</p>
+      <form class="steppers" style="margin-bottom:16px" onsubmit="saveFarm(event)">
+        <label class="stepper"><svg class="ic" style="color:var(--leaf)"><use href="#i-sprout"/></svg>
+          <div class="lbl"><span>Crop stage</span></div>
+          <select class="num" id="farm-stage" style="width:auto">
+            <option value="early">Young plants</option><option value="mid">Flowering / fruiting</option>
+            <option value="late">Near harvest</option></select></label>
+        <label class="stepper"><svg class="ic" style="color:var(--muted)"><use href="#i-ruler"/></svg>
+          <div class="lbl"><span>Field area (m²)</span></div>
+          <input class="num" type="number" id="farm-field_area_m2" min="0.5" max="100000" step="0.1" required></label>
+        <label class="stepper"><svg class="ic" style="color:var(--fert)"><use href="#i-flask"/></svg>
+          <div class="lbl"><span>Fertilizer per feed (L)</span></div>
+          <input class="num" type="number" id="farm-feed_litres" min="0.1" max="500" step="0.1" required></label>
+        <label class="stepper"><svg class="ic" style="color:var(--water)"><use href="#i-drop"/></svg>
+          <div class="lbl"><span>Pump 1 flow (L/min)</span></div>
+          <input class="num" type="number" id="farm-water_lpm" min="0.1" max="500" step="0.1" required></label>
+        <label class="stepper"><svg class="ic" style="color:var(--fert)"><use href="#i-flask"/></svg>
+          <div class="lbl"><span>Pump 2 flow (L/min)</span></div>
+          <input class="num" type="number" id="farm-fert_lpm" min="0.05" max="100" step="0.05" required></label>
+        <label class="stepper"><svg class="ic" style="color:var(--fert)"><use href="#i-clock"/></svg>
+          <div class="lbl"><span>Pump 2 auto-off (minutes)</span></div>
+          <input class="num" type="number" id="farm-fert_manual_max_min" min="1" max="60" step="1" required></label>
+        <div class="actions"><button class="btn primary" type="submit"><svg class="ic"><use href="#i-check"/></svg>Save farm setup</button></div>
+      </form>
       <div class="actions">
         <button class="btn" onclick="restartApp()"><svg class="ic"><use href="#i-refresh"/></svg>Restart app</button>
         <button class="btn danger" onclick="rebootPi()"><svg class="ic"><use href="#i-power"/></svg>Reboot Pi</button>
@@ -330,8 +498,30 @@
 
     <div class="tabpanel" id="p-wiring" role="tabpanel" hidden>
       <div class="pins" id="pins"></div>
-      <p class="note">Mega ↔ Pi over USB (/dev/ttyACM0 at 115200 baud). Relay COM goes to the pump supply +, NO to the pump +.
-        Join the pump supply GND to the Mega GND. Never power the pump from the Mega's 5V pin.</p>
+      <p class="hint" style="margin-top:14px">Pump direction. Both pumps run from the motor driver (keep the ENA / ENB
+        jumpers on). A DC pump spinning backwards still runs but pumps weakly: reverse it here.</p>
+      <div class="steppers">
+        <label class="stepper"><svg class="ic" style="color:var(--water)"><use href="#i-power"/></svg>
+          <div class="lbl"><span>Pump 1 direction</span></div>
+          <select class="num" id="dir-pump" style="width:auto" onchange="setDir('pump', this.value)">
+            <option value="FWD">Forward</option><option value="REV">Reversed</option></select></label>
+        <label class="stepper"><svg class="ic" style="color:var(--fert)"><use href="#i-power"/></svg>
+          <div class="lbl"><span>Pump 2 direction</span></div>
+          <select class="num" id="dir-fert" style="width:auto" onchange="setDir('fert', this.value)">
+            <option value="FWD">Forward</option><option value="REV">Reversed</option></select></label>
+      </div>
+      <p class="hint" style="margin-top:14px">Wiring test: one driver input HIGH for 5 s, all others LOW. IN1 / IN2 should
+        spin pump 1 (opposite ways), IN3 / IN4 pump 2.</p>
+      <div class="actions" id="input-tests">
+        <button class="btn" onclick="post('/api/test/input/1')">Test IN1 (D5)</button>
+        <button class="btn" onclick="post('/api/test/input/2')">Test IN2 (D7)</button>
+        <button class="btn" onclick="post('/api/test/input/3')">Test IN3 (D6)</button>
+        <button class="btn" onclick="post('/api/test/input/4')">Test IN4 (D8)</button>
+      </div>
+      <div class="msg" id="test-msg"></div>
+      <p class="note">Mega ↔ Pi over USB (/dev/ttyACM0 at 115200 baud). Ultrasonic sensor: VCC to 5V, GND to GND.
+        Pumps run from the motor driver: its 12V input from the pump supply, its GND joined to the Mega GND.
+        Never power a pump from the Mega's 5V pin.</p>
     </div>
   </section>
 </div>
@@ -351,6 +541,7 @@ async function post(url, body) {
   if (body) { opts.headers = { 'Content-Type': 'application/json' }; opts.body = JSON.stringify(body); }
   const res = await fetch(url, opts);
   refresh();
+  if (!url.startsWith('/api/simulator')) loadAdvice();
   return res.ok ? res.json() : null;
 }
 
@@ -410,21 +601,37 @@ function render(t) {
 
   const live = t.hardware_connected && !t.simulator_mode;
   const noSensor = live ? 'Sensor not responding' : 'Arduino offline';
-  setTile('t-temp', t.temperature_c === null ? null : t.temperature_c.toFixed(1), '°C',
-          t.temperature_c === null ? noSensor : `${Math.round(t.temperature_f)} °F`, t.temperature_c === null && live);
+  const tWx = t.temperature_source === 'weather', hWx = t.humidity_source === 'weather';
+  setTile('t-temp', t.temperature_c === null ? null : (tWx ? Math.round(t.temperature_c) : t.temperature_c.toFixed(1)), '°C',
+          t.temperature_c === null ? noSensor : tWx ? 'Alappuzha weather station' : `${Math.round(t.temperature_f)} °F`,
+          t.temperature_c === null && live);
   setTile('t-hum', t.humidity === null ? null : Math.round(t.humidity), '%',
-          t.humidity === null ? noSensor : 'Air humidity', t.humidity === null && live);
+          t.humidity === null ? noSensor : hWx ? 'Alappuzha weather station' : 'Air humidity',
+          t.humidity === null && live);
   const offSub = t.simulator_mode ? 'Live sensors only' : 'Arduino offline';
-  if (t.water_level === null || t.water_level === undefined) setTile('t-tank', null, '', offSub);
-  else setTile('t-tank', t.water_level, '%', t.water_level < 20 ? 'Low — refill tank' : `${Math.round(t.water_cm)} cm to water`, t.water_level < 20);
-  if ((t.water_level === null || t.water_level === undefined) && live) setTile('t-tank', null, '', 'No echo from sensor', true);
+  const ct = t.tank;
+  if (ct.level === null) setTile('t-tank', null, '', live ? 'No echo from sensor' : 'Arduino offline', live);
+  else setTile('t-tank', ct.level, '%', ct.alert ? 'FULL — release water' : `${ct.litres} of ${Math.round(ct.capacity_l)} L`, ct.alert);
+  $('tank-banner').hidden = !ct.alert;
+  $('tank-banner-text').textContent = ct.alert ? `Level ${ct.level ?? '--'}% since ${ct.alert_since}. Open the outlet and release the water, then reset.` : '';
+  document.title = ct.alert ? '⚠ Tank full · Smart Farm' : 'Smart Farm';
 
-  $('tank-now').textContent = t.water_level === null || t.water_level === undefined ? '--' : `${t.water_level} % full`;
-  $('tank-dist').textContent = t.water_cm === null || t.water_cm === undefined
-    ? (live ? 'No sensor reading' : 'Offline') : `${Math.round(t.water_cm)} cm to water`;
+  $('tank-now').textContent = ct.level === null ? '--' : `${ct.level} % · ${ct.litres} L`;
+  $('tank-dist').textContent = ct.cm === null ? (live ? 'No sensor reading' : 'Offline') : `${ct.cm} cm to water`;
   const ae = document.activeElement;
-  if (ae !== $('tank-height')) $('tank-height').value = Math.round(t.tank_empty_cm);
-  if (ae !== $('tank-gap')) $('tank-gap').value = Math.round(t.tank_full_cm);
+  if (ae !== $('tank-height')) $('tank-height').value = Math.round(ct.empty_cm);
+  if (ae !== $('tank-gap')) $('tank-gap').value = Math.round(ct.full_cm);
+  if (ae !== $('tank-area')) $('tank-area').value = Math.round(ct.area_cm2);
+  if (ae !== $('tank-alert')) $('tank-alert').value = Math.round(ct.alert_pct);
+  const farm = Object.assign({ fert_manual_max_min: t.fert_manual_max_min }, t.farm);
+  for (const k of ['field_area_m2', 'feed_litres', 'water_lpm', 'fert_lpm', 'fert_manual_max_min'])
+    if (ae !== $('farm-' + k)) $('farm-' + k).value = farm[k];
+  if (ae !== $('farm-stage')) $('farm-stage').value = farm.crop_stage;
+  renderFert(t);
+  for (const k of ['pump', 'fert']) if (ae !== $('dir-' + k)) $('dir-' + k).value = t.pump_reverse[k] ? 'REV' : 'FWD';
+  $('test-msg').textContent = t.pump_test ? `IN${t.pump_test.input} HIGH for ${t.pump_test.left} s: ` +
+    (t.pump_test.input <= 2 ? 'pump 1 (OUT1 / OUT2)' : 'pump 2 (OUT3 / OUT4)') + ' should run.' : '';
+  $('test-msg').style.color = 'var(--leaf)';
   const wIcon = $('w-icon');
   if (t.rain === null || t.rain === undefined) {
     setTile('t-weather', null, '', offSub);
@@ -437,7 +644,7 @@ function render(t) {
 
   const pump = $('pump');
   pump.className = 'btn' + (t.pump_on ? ' primary' : '');
-  pump.querySelector('span').textContent = t.pump_on ? 'PUMP ON' : 'PUMP OFF';
+  pump.querySelector('span').textContent = t.pump_on ? 'PUMP 1 ON' : 'PUMP 1 OFF';
   $('mode-auto').className = 'btn' + (t.pump_mode === 'AUTO' ? ' selected' : '');
   $('mode-manual').className = 'btn' + (t.pump_mode === 'MANUAL' ? ' selected' : '');
 
@@ -455,6 +662,7 @@ function render(t) {
   simBtn.className = 'btn' + (t.simulator_mode ? ' primary' : '');
   simBtn.querySelector('span').textContent = t.simulator_mode ? 'Simulator ON' : 'Simulator OFF';
   syncSlider('sim-t', t.sim_temp, '°C'); syncSlider('sim-h', t.sim_humidity, '%'); syncSlider('sim-s', t.sim_soil_moisture, '%');
+  syncSlider('sim-k', t.sim_tank_level, '%');
 }
 
 async function refresh() {
@@ -499,7 +707,7 @@ function syncSlider(id, value, unit) {
   $(id + '-val').textContent = `${Math.round(value)} ${unit}`;
   if (!dragging.has(id)) $(id).value = value;
 }
-['sim-t', 'sim-h', 'sim-s'].forEach(id => {
+['sim-t', 'sim-h', 'sim-s', 'sim-k'].forEach(id => {
   const el = $(id), unit = id === 'sim-t' ? '°C' : '%';
   el.addEventListener('pointerdown', () => dragging.add(id));
   el.addEventListener('pointerup', () => setTimeout(() => dragging.delete(id), 600));
@@ -508,17 +716,160 @@ function syncSlider(id, value, unit) {
     $(id + '-val').textContent = `${el.value} ${unit}`;
     clearTimeout(simTimer);
     simTimer = setTimeout(() => {
-      post('/api/simulator/set', { temperature: +$('sim-t').value, humidity: +$('sim-h').value, soil_moisture: +$('sim-s').value });
+      post('/api/simulator/set', { temperature: +$('sim-t').value, humidity: +$('sim-h').value, soil_moisture: +$('sim-s').value,
+                                          tank_level: +$('sim-k').value });
       setTimeout(() => dragging.delete(id), 600);
     }, 200);
   });
 });
 
-/* tank */
+/* fertilizer pump + today's advice */
+const ADV_COLOR = { water: 'var(--water)', light: 'var(--water)', skip: 'var(--leaf)', apply: 'var(--fert)',
+                    postpone: 'var(--sun)', wait: 'var(--muted)', done: 'var(--leaf)' };
+const mmss = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+let A = null;  // latest advice
+$('fert-chips').innerHTML = [[0.5, '30 s'], [1, '1 min'], [2, '2 min'], [5, '5 min']]
+  .map(([m, l]) => `<button class="chip" data-m="${m}">${icon('play', 'ic sm', 'var(--fert)')} ${l}</button>`).join('');
+document.querySelectorAll('#fert-chips .chip').forEach(c => c.onclick = () => post('/api/fert/set', { on: true, minutes: +c.dataset.m }));
+function renderFert(t) {
+  const fp = $('fert-pump'), on = t.fert_pump_on;
+  fp.className = 'btn' + (on ? ' fert' : '');
+  fp.querySelector('span').textContent = on ? (t.fert_off_in !== null ? `Pump 2 ON · stops in ${mmss(t.fert_off_in)}` : 'Pump 2 ON') : 'Pump 2 OFF';
+  $('fert-today').textContent = `Today ${mmss(t.usage.fert_s)} · ${t.usage.fert_l} L`;
+  $('fert-msg').textContent = `Manual pump. Each run stops by itself (at most ${Math.round(t.fert_manual_max_min)} min).`;
+  const sugg = $('fert-sugg'), f = A && A.fert;
+  sugg.hidden = !(f && f.action === 'apply');
+  if (f && f.action === 'apply') { sugg.querySelector('span').textContent = `Run today's ${f.litres} L (${mmss(f.run_s)})`; sugg.disabled = on; }
+}
+async function loadAdvice() {
+  try {
+    A = await (await fetch('/api/advice')).json();
+    const w = A.water, f = A.fert;
+    $('adv-head').textContent = `${A.day} · ${A.crop_name.split(' / ')[0]} · ${A.stage_name}`;
+    $('adv-w-title').textContent = w.title; $('adv-w-title').style.color = ADV_COLOR[w.action];
+    $('adv-w-text').textContent = w.text + (w.note ? ' ' + w.note : '');
+    $('adv-f-title').textContent = f.title; $('adv-f-title').style.color = ADV_COLOR[f.action];
+    $('adv-f-text').textContent = f.text + (f.note ? ' ' + f.note : '');
+    $('adv-tips').innerHTML = '';
+    for (const tip of A.tips) { const li = document.createElement('li'); li.textContent = tip; $('adv-tips').appendChild(li); }
+    if (T) renderFert(T);
+  } catch (e) {}
+}
+function runSuggested() { if (A && A.fert.action === 'apply') post('/api/fert/set', { on: true, minutes: A.fert.minutes }); }
+async function saveFarm(e) {
+  e.preventDefault();
+  const body = { crop_stage: $('farm-stage').value };
+  for (const k of ['field_area_m2', 'feed_litres', 'water_lpm', 'fert_lpm', 'fert_manual_max_min']) body[k] = +$('farm-' + k).value;
+  await post('/api/settings/farm', body);
+  $('device-msg').textContent = 'Saved farm setup.'; $('device-msg').style.color = 'var(--leaf)';
+  document.activeElement.blur();
+  loadAdvice();
+}
+
+function setDir(pump, dir) { post('/api/settings/direction', { pump, reverse: dir === 'REV' }); }
+
+/* farm ai */
+let AI = null, aiTimer = null;
+const esc = t => String(t ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const KIND_COLOR = { water: 'var(--water)', fertilizer: 'var(--fert)', pest: 'var(--alert)', tank: 'var(--tank)', harvest: 'var(--sun)', general: 'var(--leaf)' };
+const PARAM_UNIT = { dry_cutoff: '%', stop_cutoff: '%', tank_alert_pct: '%', feed_litres: ' L', fert_manual_max_min: ' min', crop_stage: '' };
+function aiState(task, idle) {
+  const t = AI.tasks[task];
+  if (!AI.configured) return '<span style="color:var(--sun)">Add a Gemini API key in the Device tab below.</span>';
+  if (t.status === 'busy') return '<span class="busy">Thinking…</span>';
+  if (t.status === 'error' && !t.result) return `<span style="color:var(--alert)">${esc(t.error)}</span>`;
+  if (!t.result) return idle;
+  return null;
+}
+function renderAI() {
+  const b = AI.tasks.brief;
+  $('ai-meta').textContent = AI.configured ? `${AI.model}${b.time ? ' · ' + b.time : ''}` : 'Not set up';
+  $('ai-refresh').disabled = !AI.configured || b.status === 'busy';
+  $('ai-key-state').textContent = AI.configured ? `Saved ${AI.key_hint}` : 'Not set';
+  const msg = aiState('brief', '<span class="hint">Tap Refresh for today\'s brief.</span>');
+  if (msg) $('ai-brief').innerHTML = msg;
+  else {
+    const r = b.result;
+    $('ai-brief').innerHTML =
+      `<h2>${esc(r.headline)}</h2><p class="sum">${esc(r.summary)}</p>` +
+      `<div class="plan" style="margin:10px 0"><div><b style="color:var(--water)">Water:</b> ${esc(r.water)}</div>` +
+      `<div><b style="color:var(--fert)">Fertilizer:</b> ${esc(r.fertilizer)}</div></div>` +
+      `<div class="acts">${r.actions.map(a => `<div class="act"><b style="color:${KIND_COLOR[a.kind] || 'var(--leaf)'}">${esc(a.title)}<i>${esc(a.when)}</i></b>${esc(a.detail)}</div>`).join('')}</div>` +
+      (r.reminders.length ? `<p class="hint" style="margin:10px 0 0">${r.reminders.map(x => `<b>${esc(x.day)}:</b> ${esc(x.text)}`).join(' · ')}</p>` : '') +
+      r.warnings.map(w => `<p style="color:var(--alert);margin:6px 0 0;font-size:13px">⚠ ${esc(w)}</p>`).join('') +
+      (b.status === 'busy' ? '<p class="busy">Refreshing…</p>' : '');
+  }
+  const c = AI.tasks.crop, cm = aiState('crop', '<span class="hint">Type a crop name, or leave empty for the current crop.</span>');
+  if (cm) $('ai-crop-out').innerHTML = cm;
+  else { const r = c.result;
+    $('ai-crop-out').innerHTML = `<b>${esc(r.name)}</b>\nWater below ${Math.round(r.dry_cutoff)}% until ${Math.round(r.stop_cutoff)}%, Kc ${r.kc_early}/${r.kc_mid}/${r.kc_late}, feed every ${r.feed_days} days\n` +
+      `Season: ${esc(r.season)} · ${esc(r.water_need)}\nFeed: ${esc(r.feeding)}\nPests: ${esc(r.pests)}\nTip: ${esc(r.tips)}`; }
+  $('ai-crop-apply').hidden = !c.result || c.status === 'busy';
+  const p = AI.tasks.params, pm = aiState('params', '');
+  $('ai-params-out').innerHTML = pm ?? esc(p.result.summary) + (p.result.suggestions.length ? '' : ' No changes needed.');
+  $('ai-params-list').innerHTML = pm !== null ? '' : p.result.suggestions.map((s, i) =>
+    `<div class="sugg"><span><b>${esc(s.name)} → ${esc(s.value)}${PARAM_UNIT[s.key]}</b> ${esc(s.reason)}</span>` +
+    `<button class="btn${s.applied ? '' : ' primary'}" ${s.applied ? 'disabled' : ''} onclick="aiApply('param', ${i})">${s.applied ? 'Done' : 'Apply'}</button></div>`).join('');
+  const a = AI.tasks.ask, am = aiState('ask', '');
+  $('ai-ask-out').innerHTML = am ?? `<b>${esc(a.input)}</b>\n${esc(a.result.answer)}`;
+}
+async function loadAI() {
+  clearTimeout(aiTimer);
+  try { AI = await (await fetch('/api/ai/status')).json(); renderAI(); } catch (e) {}
+  const busy = AI && Object.values(AI.tasks).some(t => t.status === 'busy');
+  aiTimer = setTimeout(loadAI, busy ? 2000 : 60000);
+}
+async function aiRun(task, text) {
+  const res = await fetch('/api/ai/' + task, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                               body: JSON.stringify({ text: text ?? null }) });
+  AI = await res.json(); renderAI(); loadAI();
+}
+function aiCrop(e) { e.preventDefault(); aiRun('crop', $('ai-crop-in').value); }
+function aiAsk(e) { e.preventDefault(); if ($('ai-ask-in').value.trim()) aiRun('ask', $('ai-ask-in').value); }
+async function aiApply(what, index) {
+  const res = await fetch('/api/ai/apply/' + what, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                                     body: JSON.stringify({ index: index ?? 0 }) });
+  const data = await res.json();
+  if (!res.ok) alert(data.message); else { AI = data; renderAI(); }
+  refresh(); loadAdvice();
+}
+async function saveAIKey(e, remove) {
+  if (e) e.preventDefault();
+  const key = remove ? '' : $('ai-key').value.trim();
+  if (!remove && !key) return;
+  const res = await fetch('/api/ai/key', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key }) });
+  const data = await res.json();
+  $('ai-key').value = '';
+  $('ai-key-msg').textContent = res.ok ? (remove ? 'Farm AI key removed.' : 'Farm AI key saved. Getting today\'s brief…')
+                                       : `Not saved: ${data.message || data.detail || res.status}`;
+  $('ai-key-msg').style.color = res.ok ? 'var(--leaf)' : 'var(--alert)';
+  if (res.ok) { AI = data; renderAI(); loadAI(); }
+}
+function removeAIKey() { if (confirm('Remove the Farm AI key from the Pi?')) saveAIKey(null, true); }
+
+/* weather */
+const WX_COLOR = { sun: 'var(--light)', cloudsun: 'var(--light)', rain: 'var(--water)', storm: 'var(--sun)' };
+async function loadWeather() {
+  try {
+    const w = await (await fetch('/api/weather')).json();
+    if (!w.ok) { $('wx-label').textContent = `Alappuzha · ${w.error || 'no forecast yet'}`; return; }
+    const c = w.current;
+    $('wx-icon').innerHTML = `<use href="#i-${c.icon}"/>`; $('wx-icon').style.color = WX_COLOR[c.icon] || 'var(--muted)';
+    $('wx-temp').textContent = `${Math.round(c.temp)}°C`;
+    $('wx-label').textContent = `${c.label} · Alappuzha`;
+    $('wx-extra').textContent = `Feels ${Math.round(c.feels)}° · Humidity ${c.humidity}% · Wind ${Math.round(c.wind)} km/h · Updated ${w.updated}${w.stale ? ' (old)' : ''}`;
+    $('wx-days').innerHTML = w.daily.map((d, i) =>
+      `<div><b>${i ? d.day : 'Today'}</b>${icon(d.icon, 'ic', WX_COLOR[d.icon] || 'var(--muted)')}` +
+      `<span>${Math.round(d.max)}° / ${Math.round(d.min)}°</span><span class="rain">Rain ${d.rain_chance}%</span></div>`).join('');
+  } catch (e) {}
+}
+
 async function saveTank(e) {
   e.preventDefault();
-  const res = await post('/api/tank/calibrate', { height_cm: +$('tank-height').value, full_gap_cm: +$('tank-gap').value });
-  $('tank-msg').textContent = res ? `Saved: height ${res.height_cm} cm, gap ${res.full_gap_cm} cm` : 'Could not save';
+  const res = await post('/api/tank/calibrate', { height_cm: +$('tank-height').value,
+                                                  full_gap_cm: +$('tank-gap').value, area_cm2: +$('tank-area').value });
+  await post('/api/settings/farm', { tank_alert_pct: +$('tank-alert').value });
+  $('tank-msg').textContent = res ? `Saved: height ${res.height_cm} cm, gap ${res.full_gap_cm} cm, area ${res.area_cm2} cm²` : 'Could not save';
   $('tank-msg').style.color = res ? 'var(--leaf)' : 'var(--alert)';
   document.activeElement.blur();
 }
@@ -597,9 +948,10 @@ async function rebootPi() {
 /* wiring */
 (function renderPins() {
   const pins = [['sprout', 'var(--leaf)', 'Soil moisture sensor', 'A0'], ['rain', 'var(--water)', 'Rain sensor', 'A1'],
-                ['sun', 'var(--light)', 'Light sensor (LDR)', 'A2'], ['tank', 'var(--tank)', 'Ultrasonic tank sensor TRIG', 'D9'], ['tank', 'var(--tank)', 'Ultrasonic tank sensor ECHO', 'D10'],
-                ['thermo', 'var(--sun)', 'DHT11 / DHT22 temp & humidity', 'D2'],
-                ['power', 'var(--alert)', 'Pump relay (active LOW)', 'D8'], ['chip', 'var(--muted)', 'Status LED', 'D13']];
+                ['sun', 'var(--light)', 'Light sensor (LDR)', 'A2'], ['thermo', 'var(--sun)', 'DHT11 / DHT22 temp & humidity', 'D2'],
+                ['power', 'var(--water)', 'Pump 1 (water): motor driver IN1 / IN2', 'D5 / D7'], ['power', 'var(--fert)', 'Pump 2 (fertilizer): motor driver IN3 / IN4', 'D6 / D8'],
+                ['tank', 'var(--tank)', 'Rain tank ultrasonic TRIG / ECHO', 'D9 / D10'],
+                ['chip', 'var(--muted)', 'Status LED', 'D13']];
   $('pins').innerHTML = pins.map(([ic, c, n, p]) => `${icon(ic, 'ic', c)}<span>${n}</span><b>${p}</b>`).join('');
 })();
 
@@ -619,7 +971,12 @@ openTab(startTab);
 
 loadCrops();
 refresh();
+loadWeather();
+loadAdvice();
+loadAI();
 setInterval(refresh, 1000);
+setInterval(loadWeather, 5 * 60 * 1000);
+setInterval(loadAdvice, 60 * 1000);
 </script>
 </body>
 </html>

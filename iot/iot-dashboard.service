@@ -7,6 +7,7 @@ Type=simple
 User=root
 WorkingDirectory=/home/school/stjoseph_iot
 Environment=QT_QPA_PLATFORM=linuxfb:fb=/dev/fb1
+Environment=QT_QPA_FB_DISABLE_INPUT=1
 ExecStart=/usr/bin/python3 /home/school/stjoseph_iot/main.py --fullscreen
 Restart=always
 RestartSec=2

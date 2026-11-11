@@ -29,5 +29,7 @@ Thumbs.db
 # Logs and runtime snapshots
 *.log
 animal-deterrence/alerts/snapshots/*.jpg
+iot/config/weather_cache.json
+iot/config/ai_cache.json
 !animal-deterrence/alerts/snapshots/.gitkeep
 

@@ -19,14 +19,14 @@ How to grow, water, feed and protect the crops supported by the Smart Farm dashb
 
 ## 1. How the dashboard waters your crop
 
-- **AUTO mode:** the pump starts when soil moisture drops **below the start cutoff** and stops when it **reaches the stop cutoff**. Choosing a crop in **Settings ➔ Crops** sets both cutoffs.
+- **AUTO mode:** the pump starts when soil moisture drops **below the start cutoff** and stops when it **reaches the stop cutoff**. Choosing a crop in the **Crops** app sets both cutoffs. The **Today** app turns the forecast and this guide's water figures into a daily water amount and a fertilizer reminder; pump 2 (fertilizer) is run by hand from the **Fertilizer** app.
 - **The soil % is a sensor reading, not a lab measurement.** The firmware maps the raw value (dry ≈ 1023, wet ≈ 300) to 0–100 %, and every sensor and soil type reads a little differently. Calibrate once per field:
   1. Note the dashboard reading when the soil is dry enough that the crop needs water. Squeeze a handful from root depth: it crumbles and won't hold shape.
   2. Water thoroughly, wait about 1 hour, and note the reading again. This is about "field capacity": the soil holds shape but no water drips out.
   3. Set **Start** a little above the dry reading and **Stop** a little below the wet reading. Those values become your **Custom** profile.
 - **Place the sensor in the root zone:** 10–15 cm deep for vegetables and 5–8 cm for onion. Put it between two plants in the row, under a dripper's wetted area but not right below the emitter.
 - **Rain:** the soil sensor already sees rain, so AUTO won't water wet soil. In heavy monsoon rain, switch to **MANUAL** and keep the pump off so the soil isn't waterlogged.
-- **Tank:** keep an eye on the **Tank** tile. A pump running dry burns out quickly, so refill when it shows **Refill tank** (below 20 %).
+- **Rain tank:** when the dashboard says the rain tank is full, release the water and tap **Released · Reset**.
 
 ---
 

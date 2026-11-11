@@ -1,15 +1,20 @@
 """
 FastAPI web server for the Smart Farm dashboard.
 Serves the browser dashboard (dashboard/index.html) and the REST API used by it:
-live telemetry, crop profiles, cutoffs, pump control, simulator, Wi-Fi and device actions.
+live telemetry, crop profiles, cutoffs, water and fertilizer pumps, rain tank
+alert and calibration, daily advice, Farm AI (Gemini), Alappuzha weather,
+simulator, Wi-Fi and device actions.
 """
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
+from typing import Optional
 from pathlib import Path
 from hardware_manager import hardware, CROP_PRESETS, run_privileged
 from icons import svg_symbols
+from weather import weather
+from farm_ai import ai, AIError
 import wifi_manager
 
 DASHBOARD_HTML = Path(__file__).resolve().parent / "dashboard" / "index.html"
@@ -31,15 +36,49 @@ class SimulatorSettings(BaseModel):
     temperature: float = None
     humidity: float = None
     soil_moisture: float = None
+    tank_level: float = None
 
 
 class TankCalibration(BaseModel):
     height_cm: float = None    # sensor to tank floor (= distance when empty)
     full_gap_cm: float = None  # sensor to water surface when full
+    area_cm2: float = None     # water surface area, converts cm to litres
 
 
 class TankMark(BaseModel):
     which: str  # "empty" or "full"
+
+
+class PumpState(BaseModel):
+    on: bool
+    minutes: float = None  # run time; defaults to the auto-off limit
+
+
+class PumpDirection(BaseModel):
+    pump: str          # "pump" (pump 1) or "fert" (pump 2)
+    reverse: bool
+
+
+class FarmSettings(BaseModel):
+    crop_stage: str = None
+    field_area_m2: float = None
+    water_lpm: float = None
+    fert_lpm: float = None
+    feed_litres: float = None
+    tank_alert_pct: float = None
+    fert_manual_max_min: float = None
+
+
+class AIKey(BaseModel):
+    key: str = ""
+
+
+class AIRequest(BaseModel):
+    text: Optional[str] = None
+
+
+class AIApply(BaseModel):
+    index: int = 0
 
 
 class WifiConnectionRequest(BaseModel):
@@ -71,14 +110,16 @@ def set_simulator_sensors(req: SimulatorSettings):
     hardware.set_simulated_sensors(
         temp=req.temperature,
         humidity=req.humidity,
-        soil_moisture=req.soil_moisture
+        soil_moisture=req.soil_moisture,
+        tank_level=req.tank_level
     )
     return JSONResponse({
         "status": "success",
         "simulator_mode": hardware.simulator_mode,
         "temperature": hardware.sim_temp,
         "humidity": hardware.sim_humidity,
-        "soil_moisture": hardware.sim_soil_moisture
+        "soil_moisture": hardware.sim_soil_moisture,
+        "tank_level": hardware.sim_tank_level
     })
 
 
@@ -104,10 +145,103 @@ def set_cutoffs(settings: CutoffSettings):
     })
 
 
+@web_app.post("/api/fert/toggle")
+def toggle_fert_pump():
+    return JSONResponse({"fert_pump_on": hardware.toggle_fert_pump()})
+
+
+@web_app.post("/api/fert/set")
+def set_fert_pump(req: PumpState):
+    return JSONResponse({"fert_pump_on": hardware.set_fert_pump(req.on, req.minutes)})
+
+
+@web_app.post("/api/settings/farm")
+def set_farm_settings(req: FarmSettings):
+    hardware.set_farm_settings(**req.dict())
+    return JSONResponse(hardware.get_telemetry()["farm"])
+
+
+@web_app.post("/api/settings/direction")
+def set_direction(req: PumpDirection):
+    if req.pump not in ("pump", "fert"):
+        return JSONResponse({"status": "error", "message": "pump must be 'pump' or 'fert'"}, status_code=400)
+    hardware.set_pump_direction(req.pump, req.reverse)
+    return JSONResponse({"pump_reverse": hardware.pump_reverse})
+
+
+@web_app.post("/api/test/input/{n}")
+def test_input(n: int):
+    if n not in (1, 2, 3, 4):
+        return JSONResponse({"status": "error", "message": "input must be 1-4"}, status_code=400)
+    hardware.test_driver_input(n)
+    return JSONResponse({"status": "testing", "input": n})
+
+
+@web_app.get("/api/advice")
+def get_advice():
+    return JSONResponse(hardware.get_advice())
+
+
+@web_app.get("/api/ai/status")
+def ai_status():
+    return JSONResponse(ai.status())
+
+
+@web_app.post("/api/ai/key")
+def ai_key(req: AIKey):
+    # Write-only: the key is never sent back, only its last 4 characters
+    try:
+        ai.set_key(req.key)
+    except AIError as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=400)
+    return JSONResponse(ai.status())
+
+
+@web_app.post("/api/ai/{task}")
+def ai_start(task: str, req: AIRequest = None):
+    if task not in ai.TASKS:
+        return JSONResponse({"status": "error", "message": "Unknown task"}, status_code=404)
+    ai.start(task, force=True, text=req.text if req else None)
+    return JSONResponse(ai.status())
+
+
+@web_app.post("/api/ai/apply/{what}")
+def ai_apply(what: str, req: AIApply = None):
+    try:
+        if what == "crop":
+            ai.apply_crop()
+        elif what == "param":
+            ai.apply_param(req.index if req else 0)
+        else:
+            return JSONResponse({"status": "error", "message": "Unknown"}, status_code=404)
+    except AIError as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=400)
+    return JSONResponse(ai.status())
+
+
+@web_app.get("/api/weather")
+def get_weather():
+    return JSONResponse(weather.get())
+
+
+@web_app.post("/api/weather/refresh")
+def refresh_weather():
+    weather.refresh()
+    return JSONResponse({"status": "refreshing"})
+
+
+@web_app.post("/api/tank/reset")
+def reset_tank():
+    hardware.reset_tank()
+    return JSONResponse(hardware.get_telemetry()["tank"])
+
+
 @web_app.post("/api/tank/calibrate")
 def calibrate_tank(req: TankCalibration):
-    empty, full = hardware.set_tank_calibration(empty_cm=req.height_cm, full_cm=req.full_gap_cm)
-    return JSONResponse({"status": "success", "height_cm": empty, "full_gap_cm": full})
+    empty, full = hardware.set_tank_calibration(empty_cm=req.height_cm, full_cm=req.full_gap_cm,
+                                                area_cm2=req.area_cm2)
+    return JSONResponse({"status": "success", "height_cm": empty, "full_gap_cm": full,
+                         "area_cm2": hardware.tank_area_cm2})
 
 
 @web_app.post("/api/tank/mark")

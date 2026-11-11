@@ -2,6 +2,11 @@
 Hardware Manager for IoT Smart Agriculture & Irrigation System
 Coordinates temperature, humidity, soil moisture readings, water pump relay control,
 crop profiles, device diagnostics, and configurable cutoff thresholds.
+
+Pump 1 (water) is switched by soil moisture against the crop's cutoffs; pump 2
+(fertilizer) is manual and always time-limited. One ultrasonic sensor watches the
+rainwater tank and raises a "tank full, release water" alert that stays up until
+it is reset. advisor.py turns the weather and crop into daily advice.
 """
 
 import os
@@ -13,6 +18,9 @@ import threading
 import subprocess
 from pathlib import Path
 from typing import Dict, Any
+
+from advisor import daily_advice, STAGES, KC, FEED_DAYS
+from weather import weather
 
 try:
     from gpiozero import OutputDevice, InputDevice
@@ -112,8 +120,7 @@ class HardwareManager:
         self.real_soil_moisture = None
         self.real_rain = 0
         self.real_light = 0
-        self.real_water_level = None   # % full, from the ultrasonic tank sensor
-        self.real_water_cm = None      # sensor-to-water distance (cm)
+        self.real_water_cm = None      # rain tank: sensor-to-water distance (cm)
         self.last_hardware_packet_time = 0.0
 
         # Simulator Mode variables (controlled via UI sliders only when explicitly enabled)
@@ -121,19 +128,50 @@ class HardwareManager:
         self.sim_temp = 28.0
         self.sim_humidity = 64.0
         self.sim_soil_moisture = 42.0
+        self.sim_tank_level = 40.0
 
         self.pump_on = False
         self.pump_mode = "AUTO"  # "AUTO" or "MANUAL"
+        self.fert_pump_on = False
+        self._fert_cmd_time = 0.0  # ignore stale fert_pump reports right after a command
+
+        self.fert_manual_max_min = 5.0  # fertilizer pump auto-off
+        # Motor driver direction per pump (True = reversed: IN2 / IN4 driven instead of IN1 / IN3)
+        self.pump_reverse = {"pump": False, "fert": False}
+        self.pump_test = None   # {"input": 1-4, "until": epoch} while a wiring test runs
+
+        # Daily advice inputs
+        self.crop_stage = "mid"         # early / mid / late (advisor.STAGES)
+        # The Custom crop: name, Kc (early, mid, late) and feed interval. Filled by Farm AI,
+        # or copied from the preset when its cutoffs are edited.
+        self.custom_profile = None
+        self.field_area_m2 = 10.0
+        self.water_lpm = 10.0           # pump flow rates, measured with a bucket
+        self.fert_lpm = 2.0
+        self.feed_litres = 2.0          # fertilizer solution per feed
+        self.fert_last_date = None      # YYYY-MM-DD of the last feed
+        self.usage_day = time.strftime("%Y-%m-%d")
+        self.water_s_today = 0.0
+        self.fert_s_today = 0.0
+        self._was_running = (False, False)
 
         # Crop selection & Cutoff Percentages
         self.selected_crop = "tomato"
         self.soil_dry_threshold = 35.0
         self.soil_target_moisture = 65.0
 
-        # Ultrasonic tank calibration: sensor-to-water distance when empty / full (cm)
+        # Rain tank: sensor-to-water distance when empty / full (cm), surface area (cm2)
+        # for litres (1 cm over 1000 cm2 = 1 L) and the full-tank alert
         self.tank_empty_cm = 100.0
         self.tank_full_cm = 10.0
+        self.tank_area_cm2 = 10000.0   # e.g. 1 m x 1 m tank
+        self.tank_alert_pct = 90.0
+        self.tank_alert = False
+        self.tank_alert_since = None
+        self.tank_armed = True
+        self.tank_last_released = None
         self.load_settings()
+        self.sim_fert_off_at = 0.0  # when pump 2's current run ends
 
         # Physical GPIO relay device
         self.relay_device = None
@@ -180,6 +218,26 @@ class HardwareManager:
                     self.sim_soil_moisture = float(data.get("sim_soil_moisture", 42.0))
                     self.tank_empty_cm = float(data.get("tank_empty_cm", 100.0))
                     self.tank_full_cm = float(data.get("tank_full_cm", 10.0))
+                    self.tank_area_cm2 = float(data.get("tank_area_cm2", data.get("water_area_cm2", 10000.0)))
+                    self.tank_alert_pct = float(data.get("tank_alert_pct", 90.0))
+                    self.tank_alert = bool(data.get("tank_alert", False))
+                    self.tank_alert_since = data.get("tank_alert_since")
+                    self.tank_armed = bool(data.get("tank_armed", True))
+                    self.tank_last_released = data.get("tank_last_released")
+                    self.sim_tank_level = float(data.get("sim_tank_level", 40.0))
+                    self.fert_manual_max_min = float(data.get("fert_manual_max_min", 5.0))
+                    self.crop_stage = data.get("crop_stage", "mid")
+                    self.pump_reverse.update(data.get("pump_reverse", {}))
+                    self.custom_profile = data.get("custom_profile")
+                    self.field_area_m2 = float(data.get("field_area_m2", 10.0))
+                    self.water_lpm = float(data.get("water_lpm", 10.0))
+                    self.fert_lpm = float(data.get("fert_lpm", 2.0))
+                    self.feed_litres = float(data.get("feed_litres", 2.0))
+                    self.fert_last_date = data.get("fert_last_date")
+                    usage = data.get("usage", {})
+                    if usage.get("day") == time.strftime("%Y-%m-%d"):
+                        self.water_s_today = float(usage.get("water_s", 0))
+                        self.fert_s_today = float(usage.get("fert_s", 0))
                     print(f"[Hardware] Loaded settings: Simulator={self.simulator_mode}, Crop={self.selected_crop}, Dry Cutoff={self.soil_dry_threshold}%, Stop Cutoff={self.soil_target_moisture}%")
             except Exception as e:
                 print(f"[Hardware] Error loading settings file: {e}")
@@ -198,8 +256,27 @@ class HardwareManager:
                     "sim_temp": self.sim_temp,
                     "sim_humidity": self.sim_humidity,
                     "sim_soil_moisture": self.sim_soil_moisture,
+            "sim_tank_level": self.sim_tank_level,
                     "tank_empty_cm": self.tank_empty_cm,
-                    "tank_full_cm": self.tank_full_cm
+                    "tank_full_cm": self.tank_full_cm,
+                    "tank_area_cm2": self.tank_area_cm2,
+                    "tank_alert_pct": self.tank_alert_pct,
+                    "tank_alert": self.tank_alert,
+                    "tank_alert_since": self.tank_alert_since,
+                    "tank_armed": self.tank_armed,
+                    "tank_last_released": self.tank_last_released,
+                    "sim_tank_level": self.sim_tank_level,
+                    "fert_manual_max_min": self.fert_manual_max_min,
+                    "crop_stage": self.crop_stage,
+                    "pump_reverse": self.pump_reverse,
+                    "custom_profile": self.custom_profile,
+                    "field_area_m2": self.field_area_m2,
+                    "water_lpm": self.water_lpm,
+                    "fert_lpm": self.fert_lpm,
+                    "feed_litres": self.feed_litres,
+                    "fert_last_date": self.fert_last_date,
+                    "usage": {"day": self.usage_day, "water_s": round(self.water_s_today),
+                              "fert_s": round(self.fert_s_today)}
                 }, f, indent=2)
             print(f"[Hardware] Saved settings to {SETTINGS_FILE}")
         except Exception as e:
@@ -218,6 +295,26 @@ class HardwareManager:
         self.save_settings()
         self._send_serial_cmd(f"CUTOFF:{self.soil_dry_threshold}:{self.soil_target_moisture}\n")
 
+    def _to_custom(self):
+        """Switches to the Custom crop after a cutoff edit, keeping the old crop's Kc and feeding."""
+        if self.selected_crop != "custom":
+            prev = self.selected_crop
+            self.custom_profile = {"name": f"{CROP_PRESETS[prev]['name'].split(' / ')[0]} (custom)",
+                                   "kc": list(KC.get(prev, KC["custom"])), "feed_days": FEED_DAYS.get(prev, 10)}
+            self.selected_crop = "custom"
+
+    def set_custom_profile(self, name: str, dry_cutoff: float, stop_cutoff: float, kc, feed_days: int):
+        """Applies a crop profile (from Farm AI) as the Custom crop."""
+        with self.lock:
+            self.custom_profile = {"name": str(name)[:30], "kc": [float(k) for k in kc], "feed_days": int(feed_days)}
+            self.selected_crop = "custom"
+        self.set_cutoffs(dry_cutoff, stop_cutoff)
+
+    def crop_display_name(self) -> str:
+        if self.selected_crop == "custom" and self.custom_profile:
+            return self.custom_profile["name"]
+        return CROP_PRESETS.get(self.selected_crop, CROP_PRESETS["custom"])["name"]
+
     def set_cutoffs(self, dry_cutoff: float, stop_cutoff: float):
         """Updates cutoff percentages safely."""
         with self.lock:
@@ -226,7 +323,7 @@ class HardwareManager:
             # If values differ from preset, mark as custom
             curr_preset = CROP_PRESETS.get(self.selected_crop)
             if curr_preset and (self.soil_dry_threshold != curr_preset["dry_cutoff"] or self.soil_target_moisture != curr_preset["stop_cutoff"]):
-                self.selected_crop = "custom"
+                self._to_custom()
         self.save_settings()
         self._send_serial_cmd(f"CUTOFF:{self.soil_dry_threshold}:{self.soil_target_moisture}\n")
 
@@ -234,7 +331,7 @@ class HardwareManager:
         with self.lock:
             val = self.soil_dry_threshold + delta
             self.soil_dry_threshold = max(10.0, min(self.soil_target_moisture - 5.0, val))
-            self.selected_crop = "custom"
+            self._to_custom()
             cur = self.soil_dry_threshold
         self.save_settings()
         self._send_serial_cmd(f"CUTOFF:{self.soil_dry_threshold}:{self.soil_target_moisture}\n")
@@ -244,22 +341,26 @@ class HardwareManager:
         with self.lock:
             val = self.soil_target_moisture + delta
             self.soil_target_moisture = max(self.soil_dry_threshold + 5.0, min(95.0, val))
-            self.selected_crop = "custom"
+            self._to_custom()
             cur = self.soil_target_moisture
         self.save_settings()
         self._send_serial_cmd(f"CUTOFF:{self.soil_dry_threshold}:{self.soil_target_moisture}\n")
         self._check_auto_irrigation()
         return cur
 
-    def set_tank_calibration(self, empty_cm: float = None, full_cm: float = None):
-        """Sets the ultrasonic distances (cm) that mean an empty and a full tank."""
+    # ------------------------------------------------------------ rain tank
+    def set_tank_calibration(self, empty_cm: float = None, full_cm: float = None, area_cm2: float = None):
+        """Sets the ultrasonic distances (cm) that mean an empty and a full rain tank,
+        and optionally the water surface area (cm2) used to show litres."""
         with self.lock:
             empty = self.tank_empty_cm if empty_cm is None else float(empty_cm)
             full = self.tank_full_cm if full_cm is None else float(full_cm)
+            area = self.tank_area_cm2 if area_cm2 is None else float(area_cm2)
             # Sensors cannot measure closer than ~2-20 cm (blind zone) or beyond ~4.5 m
             full = max(2.0, min(400.0, full))
             empty = max(full + 5.0, min(450.0, empty))
-            self.tank_empty_cm, self.tank_full_cm = round(empty, 1), round(full, 1)
+            area = max(50.0, min(500000.0, area))
+            self.tank_empty_cm, self.tank_full_cm, self.tank_area_cm2 = round(empty, 1), round(full, 1), round(area)
         self.save_settings()
         self._send_serial_cmd(f"TANK:{self.tank_empty_cm}:{self.tank_full_cm}\n")
         return self.tank_empty_cm, self.tank_full_cm
@@ -272,6 +373,115 @@ class HardwareManager:
         if which == "empty":
             return self.set_tank_calibration(empty_cm=cm)
         return self.set_tank_calibration(full_cm=cm)
+
+    def _tank_state(self) -> Dict[str, Any]:
+        empty, full, area = self.tank_empty_cm, self.tank_full_cm, self.tank_area_cm2
+        if self.simulator_mode:
+            cm = empty - self.sim_tank_level / 100.0 * (empty - full)
+        elif self.is_hardware_online:
+            cm = self.real_water_cm
+        else:
+            cm = None
+        out = {"cm": None, "level": None, "litres": None, "capacity_l": round((empty - full) * area / 1000.0, 1),
+               "empty_cm": empty, "full_cm": full, "area_cm2": area, "alert_pct": self.tank_alert_pct,
+               "alert": self.tank_alert, "alert_since": self.tank_alert_since,
+               "last_released": self.tank_last_released}
+        if cm is not None:
+            out["cm"] = round(cm, 1)
+            out["level"] = int(max(0, min(100, (empty - cm) * 100.0 / (empty - full))))
+            out["litres"] = round(max(0.0, empty - cm) * area / 1000.0, 1)
+        return out
+
+    def _check_tank_alert(self):
+        """Latches a 'tank full, release water' alert. It stays up until reset_tank(),
+        and can only fire again once the level has dropped 10 % below the alert level."""
+        level = self._tank_state()["level"]
+        if level is None:
+            return
+        with self.lock:
+            if self.tank_armed and level >= self.tank_alert_pct:
+                self.tank_alert, self.tank_armed = True, False
+                self.tank_alert_since = time.strftime("%d %b %H:%M")
+                print(f"[Tank] Rain tank full ({level}%): release water", flush=True)
+            elif not self.tank_armed and not self.tank_alert and level < self.tank_alert_pct - 10:
+                self.tank_armed = True
+
+    def reset_tank(self):
+        """Clears the full-tank alert after the water has been released."""
+        with self.lock:
+            self.tank_alert = False
+            self.tank_alert_since = None
+            self.tank_last_released = time.strftime("%d %b %H:%M")
+        self.save_settings()
+
+    def set_farm_settings(self, **kw):
+        """Field size, pump flow rates, feed size, crop stage, tank alert level, fertilizer auto-off."""
+        limits = {"field_area_m2": (0.5, 100000.0), "water_lpm": (0.1, 500.0), "fert_lpm": (0.05, 100.0),
+                  "feed_litres": (0.1, 500.0), "tank_alert_pct": (50.0, 100.0), "fert_manual_max_min": (1.0, 60.0)}
+        with self.lock:
+            for key, (lo, hi) in limits.items():
+                if kw.get(key) is not None:
+                    setattr(self, key, round(max(lo, min(hi, float(kw[key]))), 2))
+            if kw.get("crop_stage") in STAGES:
+                self.crop_stage = kw["crop_stage"]
+        self.save_settings()
+
+    # ------------------------------------------------------------- fertilizer
+    def set_fert_pump(self, on: bool, minutes: float = None):
+        """Pump 2 (fertilizer), manual. Always time-limited: `minutes`, or the auto-off limit."""
+        limit = self.fert_manual_max_min * 60
+        seconds = int(max(1, min(limit, minutes * 60))) if minutes else int(limit)
+        with self.lock:
+            self.fert_pump_on = on
+            self._fert_cmd_time = time.time()
+            self.sim_fert_off_at = time.time() + seconds if on else 0.0
+        self._send_serial_cmd(f"FERT:ON:{seconds}\n" if on else "FERT:OFF\n")
+        print(f"[Hardware] Fertilizer Pump -> {'ON for %d s' % seconds if on else 'OFF'}", flush=True)
+        return self.fert_pump_on
+
+    def toggle_fert_pump(self) -> bool:
+        return self.set_fert_pump(not self.fert_pump_on)
+
+    def _track_usage(self, dt: float):
+        """Counts today's pump run time. A fertilizer run of 20 s or more counts as today's feed."""
+        today = time.strftime("%Y-%m-%d")
+        changed = False
+        with self.lock:
+            if self.usage_day != today:
+                self.usage_day, self.water_s_today, self.fert_s_today = today, 0.0, 0.0
+                changed = True
+            if self.pump_on:
+                self.water_s_today += dt
+            if self.fert_pump_on:
+                self.fert_s_today += dt
+                if self.fert_s_today >= 20 and self.fert_last_date != today:
+                    self.fert_last_date = today
+                    changed = True
+            # Save when a pump stops so the counters survive a restart
+            stopped = (self._was_running[0] and not self.pump_on) or (self._was_running[1] and not self.fert_pump_on)
+            self._was_running = (self.pump_on, self.fert_pump_on)
+        if changed or stopped:
+            self.save_settings()
+
+    def get_advice(self) -> Dict[str, Any]:
+        t = self.get_telemetry()
+        return daily_advice(
+            crop=self.selected_crop, crop_name=self.crop_display_name(), stage=self.crop_stage, weather=weather.get(),
+            soil=t["soil_moisture"], dry_cut=self.soil_dry_threshold, stop_cut=self.soil_target_moisture,
+            tank_level=t["tank"]["level"], tank_alert_pct=self.tank_alert_pct, field_m2=self.field_area_m2,
+            water_lpm=self.water_lpm, fert_lpm=self.fert_lpm, feed_litres=self.feed_litres,
+            fert_last_date=self.fert_last_date, water_s_today=self.water_s_today, fert_s_today=self.fert_s_today,
+            custom=self.custom_profile if self.selected_crop == "custom" else None)
+
+    def _simulate(self):
+        """Simulator: watering slowly raises the soil moisture; pump 2 stops on its timer."""
+        if not self.simulator_mode:
+            return
+        with self.lock:
+            if self.pump_on:
+                self.sim_soil_moisture = min(100.0, self.sim_soil_moisture + 0.2)
+            if self.fert_pump_on and self.sim_fert_off_at and time.time() > self.sim_fert_off_at:
+                self.fert_pump_on = False
 
     def set_simulator_mode(self, enabled: bool) -> bool:
         """Toggles manual simulator mode. When enabled, slider values override physical inputs."""
@@ -286,7 +496,8 @@ class HardwareManager:
     def toggle_simulator_mode(self) -> bool:
         return self.set_simulator_mode(not self.simulator_mode)
 
-    def set_simulated_sensors(self, temp: float = None, humidity: float = None, soil_moisture: float = None):
+    def set_simulated_sensors(self, temp: float = None, humidity: float = None, soil_moisture: float = None,
+                              tank_level: float = None):
         """Sets slider values for simulation. When simulator_mode is active, outputs update immediately."""
         with self.lock:
             if temp is not None:
@@ -295,6 +506,8 @@ class HardwareManager:
                 self.sim_humidity = round(float(humidity), 1)
             if soil_moisture is not None:
                 self.sim_soil_moisture = round(float(soil_moisture), 1)
+            if tank_level is not None:
+                self.sim_tank_level = round(max(0.0, min(100.0, float(tank_level))), 1)
 
         self.save_settings()
         self._check_auto_irrigation()
@@ -334,20 +547,84 @@ class HardwareManager:
     def _sync_arduino(self):
         """Pushes cutoffs and control mode to the Arduino. Its own AUTO logic is only
         enabled when the Pi is in AUTO and not simulating; otherwise the Pi drives the pump."""
+        self._last_sync = time.time()
         arduino_auto = self.pump_mode == "AUTO" and not self.simulator_mode
+        for pump, rev in self.pump_reverse.items():
+            self._send_serial_cmd(f"DIR:{pump.upper()}:{'REV' if rev else 'FWD'}\n")
         self._send_serial_cmd(f"CUTOFF:{self.soil_dry_threshold}:{self.soil_target_moisture}\n")
         self._send_serial_cmd(f"TANK:{self.tank_empty_cm}:{self.tank_full_cm}\n")
         self._send_serial_cmd("MODE:AUTO\n" if arduino_auto else "MODE:MANUAL\n")
         if not arduino_auto:
             self._send_serial_cmd("PUMP:ON\n" if self.pump_on else "PUMP:OFF\n")
+        if not self.fert_pump_on:
+            self._send_serial_cmd("FERT:OFF\n")
+
+    def _check_arduino_state(self, data):
+        """Re-sends our settings when the Mega reports a different mode or cutoffs
+        (a lost command, or a manual PUMP command in AUTO), at most every 5 s."""
+        want_auto = self.pump_mode == "AUTO" and not self.simulator_mode
+        try:
+            ok = ((data["mode"] == "AUTO") == want_auto and
+                  abs(float(data["dry_cutoff"]) - self.soil_dry_threshold) < 0.1 and
+                  abs(float(data["stop_cutoff"]) - self.soil_target_moisture) < 0.1)
+        except (KeyError, TypeError, ValueError):
+            return
+        if not ok and time.time() - getattr(self, "_last_sync", 0) > 5:
+            print(f"[Hardware] Arduino out of sync (mode {data.get('mode')}, cutoffs "
+                  f"{data.get('dry_cutoff')}/{data.get('stop_cutoff')}): re-sending settings", flush=True)
+            self._sync_arduino()
+
+    def set_pump_direction(self, pump: str, reverse: bool):
+        """pump: "pump" (1, water) or "fert" (2). Stored here and in the Mega's EEPROM."""
+        if pump not in self.pump_reverse:
+            return
+        with self.lock:
+            self.pump_reverse[pump] = bool(reverse)
+        self.save_settings()
+        self._send_serial_cmd(f"DIR:{pump.upper()}:{'REV' if reverse else 'FWD'}\n")
+        print(f"[Hardware] {pump} motor direction -> {'reversed' if reverse else 'forward'}", flush=True)
+
+    TEST_S = 5
+
+    def test_driver_input(self, n: int):
+        """Wiring test: only motor-driver input n (1-4) HIGH for 5 s, everything else LOW.
+        IN1 / IN2 = pump 1 (D5 / D7), IN3 / IN4 = pump 2 (D6 / D8). Switches to MANUAL."""
+        if n not in (1, 2, 3, 4):
+            return
+        pump, reverse = ("pump" if n <= 2 else "fert"), n in (2, 4)
+        with self.lock:
+            self.pump_mode = "MANUAL"
+            self.pump_on = n <= 2
+            self.fert_pump_on = n > 2
+            self._fert_cmd_time = time.time()
+            self.pump_test = {"input": n, "until": time.time() + self.TEST_S}
+        self.save_settings()
+        for cmd in ("MODE:MANUAL", "PUMP:OFF", "FERT:OFF", f"DIR:{pump.upper()}:{'REV' if reverse else 'FWD'}",
+                    f"{'PUMP' if pump == 'pump' else 'FERT'}:ON:{self.TEST_S}"):
+            self._send_serial_cmd(cmd + "\n")
+        print(f"[Hardware] Wiring test: IN{n} HIGH for {self.TEST_S} s", flush=True)
+        threading.Timer(self.TEST_S + 0.5, self._end_test, args=(n,)).start()
+
+    def _end_test(self, n):
+        with self.lock:
+            if not self.pump_test or self.pump_test["input"] != n:
+                return
+            self.pump_test = None
+            self.pump_on = self.fert_pump_on = False
+        self._send_serial_cmd("PUMP:OFF\nFERT:OFF\n")
+        for pump, rev in self.pump_reverse.items():
+            self._send_serial_cmd(f"DIR:{pump.upper()}:{'REV' if rev else 'FWD'}\n")
 
     def _send_serial_cmd(self, cmd_str: str):
-        """Sends command to Arduino Mega via USB serial if connected."""
+        """Sends command(s) to the Arduino Mega via USB serial if connected. Lines are
+        paced 15 ms apart so a burst never overflows the Mega's 64-byte receive buffer."""
         if self.serial_conn:
             with self.serial_lock:
                 try:
-                    self.serial_conn.write(cmd_str.encode('utf-8'))
-                    self.serial_conn.flush()
+                    for line in cmd_str.strip().splitlines():
+                        self.serial_conn.write((line + "\n").encode('utf-8'))
+                        self.serial_conn.flush()
+                        time.sleep(0.015)
                 except Exception as e:
                     print(f"[Serial] Error writing to Arduino: {e}")
 
@@ -428,7 +705,7 @@ class HardwareManager:
             "disk_usage": disk_str,
             "uptime": uptime_str,
             "lcd_driver": "ADS7846 6-Point Affine",
-            "gpio_relay": "Mega Pin 8 (Active LOW)",
+            "gpio_relay": "Motor driver: pump 1 D5/D7, pump 2 D6/D8",
             "arduino_mega": "Connected (/dev/ttyACM0 @ 115200)" if self.arduino_connected else "Standby / Simulated"
         }
 
@@ -461,14 +738,26 @@ class HardwareManager:
             # Extra field sensors are only meaningful with live hardware
             rain = self.real_rain if hw_online and not sim_mode else None
             light = self.real_light if hw_online and not sim_mode else None
-            water_level = self.real_water_level if hw_online and not sim_mode else None
-            water_cm = self.real_water_cm if hw_online and not sim_mode else None
+            tank = self._tank_state()
 
             pump = self.pump_on
             mode = self.pump_mode
             dry_cut = round(self.soil_dry_threshold, 1)
             stop_cut = round(self.soil_target_moisture, 1)
             crop_key = self.selected_crop
+
+        # No DHT reading (sensor down or Arduino offline): use the Alappuzha weather
+        # station instead, marked with source "weather" so every screen labels it
+        temp_src = "simulator" if sim_mode else ("sensor" if temp_c is not None else None)
+        hum_src = "simulator" if sim_mode else ("sensor" if hum is not None else None)
+        if not sim_mode and (temp_c is None or hum is None):
+            w = weather.get()
+            if w.get("ok") and not w.get("stale"):
+                if temp_c is None:
+                    temp_c, temp_src = round(float(w["current"]["temp"]), 1), "weather"
+                    temp_f = round(temp_c * 9.0 / 5.0 + 32.0, 1)
+                if hum is None:
+                    hum, hum_src = round(float(w["current"]["humidity"]), 1), "weather"
 
         crop_info = CROP_PRESETS.get(crop_key, CROP_PRESETS["custom"])
 
@@ -491,15 +780,28 @@ class HardwareManager:
 
         return {
             "temperature_c": temp_c,
+            "temperature_source": temp_src,
             "temperature_f": temp_f,
             "humidity": hum,
+            "humidity_source": hum_src,
             "soil_moisture": soil,
             "rain": rain,
             "light": light,
-            "water_level": water_level,
-            "water_cm": water_cm,
-            "tank_empty_cm": self.tank_empty_cm,
-            "tank_full_cm": self.tank_full_cm,
+            "water_level": tank["level"],
+            "water_cm": tank["cm"],
+            "tank": tank,
+            "fert_pump_on": self.fert_pump_on,
+            "pump_reverse": dict(self.pump_reverse),
+            "pump_test": {"input": self.pump_test["input"],
+                          "left": max(0, int(self.pump_test["until"] - time.time() + 0.99))} if self.pump_test else None,
+            "fert_off_in": max(0, int(self.sim_fert_off_at - time.time())) if self.fert_pump_on and self.sim_fert_off_at else None,
+            "fert_manual_max_min": self.fert_manual_max_min,
+            "farm": {"crop_stage": self.crop_stage, "field_area_m2": self.field_area_m2,
+                     "water_lpm": self.water_lpm, "fert_lpm": self.fert_lpm, "feed_litres": self.feed_litres,
+                     "fert_last_date": self.fert_last_date},
+            "usage": {"water_s": round(self.water_s_today), "fert_s": round(self.fert_s_today),
+                      "water_l": round(self.water_s_today / 60.0 * self.water_lpm),
+                      "fert_l": round(self.fert_s_today / 60.0 * self.fert_lpm, 1)},
             "soil_condition": condition,
             "soil_color": condition_color,
             "pump_status": "ON" if pump else "OFF",
@@ -508,7 +810,7 @@ class HardwareManager:
             "dry_cutoff": dry_cut,
             "stop_cutoff": stop_cut,
             "selected_crop": crop_key,
-            "crop_name": crop_info["name"],
+            "crop_name": self.crop_display_name(),
             "crop_icon": crop_info["icon"],
             "crop_desc": crop_info["desc"],
             "arduino_mega_online": hw_online,
@@ -518,6 +820,7 @@ class HardwareManager:
             "sim_temp": self.sim_temp,
             "sim_humidity": self.sim_humidity,
             "sim_soil_moisture": self.sim_soil_moisture,
+            "sim_tank_level": self.sim_tank_level,
             "timestamp": time.strftime("%H:%M:%S")
         }
 
@@ -561,11 +864,13 @@ class HardwareManager:
                             self.real_rain = int(data["rain"])
                         if "light" in data:
                             self.real_light = int(data["light"])
-                        # null when the ultrasonic sensor gets no echo
-                        if "water_level" in data:
-                            self.real_water_level = int(data["water_level"]) if data["water_level"] is not None else None
+                        # Rain tank; null when the ultrasonic sensor gets no echo
                         if "water_cm" in data:
                             self.real_water_cm = float(data["water_cm"]) if data["water_cm"] is not None else None
+                        # The Arduino owns the fertilizer pump timer, so it reports when it switched off
+                        if ("fert_pump" in data and not self.simulator_mode
+                                and time.time() - self._fert_cmd_time > 2.0):
+                            self.fert_pump_on = bool(data["fert_pump"])
                         if "pump" in data and self.pump_mode == "AUTO" and not self.simulator_mode:
                             self.pump_on = bool(data["pump"])
                             if self.relay_device:
@@ -576,6 +881,8 @@ class HardwareManager:
                     # Arduino rebooted (boots in AUTO with default cutoffs): re-push our state
                     if data.get("status") == "READY":
                         self._sync_arduino()
+                    elif "mode" in data:
+                        self._check_arduino_state(data)
                 else:
                     if (time.time() - self.last_hardware_packet_time) > 4.0:
                         self.arduino_connected = False
@@ -591,9 +898,15 @@ class HardwareManager:
 
     def _loop(self):
         """Periodic auto-irrigation checker (pure real hardware control, no fake data generation)."""
+        last = time.time()
         while self.running:
-            time.sleep(1.0)
+            time.sleep(0.5)
+            now = time.time()
+            self._simulate()
+            self._track_usage(now - last)
+            last = now
             self._check_auto_irrigation()
+            self._check_tank_alert()
 
 
 def run_privileged(args):

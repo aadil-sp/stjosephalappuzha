@@ -15,11 +15,21 @@ from hardware_manager import hardware, CROP_PRESETS, run_privileged
 from icons import svg_symbols
 from weather import weather
 from farm_ai import ai, AIError
+import app_access
 import wifi_manager
 
 DASHBOARD_HTML = Path(__file__).resolve().parent / "dashboard" / "index.html"
 
 web_app = FastAPI(title="Smart Farm IoT Hub")
+
+
+@web_app.middleware("http")
+async def require_app_key(request: Request, call_next):
+    # Local network: open. Internet (tunnel) and the Android app: X-Farm-Key required
+    host = request.client.host if request.client else ""
+    if app_access.needs_key(host, request.headers) and not app_access.key_ok(request.headers.get("x-farm-key")):
+        return JSONResponse({"status": "error", "message": "Access key required"}, status_code=401)
+    return await call_next(request)
 
 
 class CutoffSettings(BaseModel):

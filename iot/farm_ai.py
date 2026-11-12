@@ -134,14 +134,14 @@ def read_env():
     return out
 
 
-def save_env_value(key, value):
+def save_env_value(key, value, header="# Farm AI (Google Gemini)"):
     """Sets KEY=value in config/.env, keeping every other line."""
     ENV_FILE.parent.mkdir(parents=True, exist_ok=True)
     lines = ENV_FILE.read_text().splitlines() if ENV_FILE.exists() else []
     lines = [ln for ln in lines if not re.match(rf"\s*{re.escape(key)}\s*=", ln)]
     if value:
-        if not any(ln.strip() == "# Farm AI (Google Gemini)" for ln in lines):
-            lines += ["", "# Farm AI (Google Gemini)"]
+        if not any(ln.strip() == header for ln in lines):
+            lines += ["", header]
         lines.append(f"{key}={value}")
     ENV_FILE.write_text("\n".join(lines) + "\n")
     try:

@@ -79,6 +79,16 @@ The resistive touch driver only reports taps, so the touchscreen UI avoids slide
 
 ---
 
+## Android App (control from anywhere)
+
+`android/` holds a native Android app with the same controls (APK in `android/release/`).
+To use it away from the farm, give the Pi an internet address once with
+`bash setup_remote_access.sh <ngrok-authtoken> <static-domain>`. Requests from the
+internet must carry the app access key, shown on the touchscreen under **Device → App key**;
+devices on the local network need no key. See [android/README.md](android/README.md).
+
+---
+
 ## Directory Structure
 
 - [`firmware/`](file:///Users/aadilsp/Desktop/Antigravity/stjosephalappuzha/iot/firmware): Embedded C/C++ or MicroPython code for microcontrollers (ESP32, ESP8266, Arduino) and Pi GPIO.

@@ -37,6 +37,7 @@ from keyboard_dialog import get_text_input
 from icons import qt_pixmap, qt_icon
 from weather import weather
 from farm_ai import ai as farm_ai
+import app_access
 import wifi_manager
 
 # ---------------------------------------------------------------------------
@@ -1939,9 +1940,9 @@ class IoTTouchDashboard(QMainWindow):
         box = self.page_box(page)
         info = card()
         grid = QGridLayout(info)
-        grid.setContentsMargins(12, 7, 12, 7)
+        grid.setContentsMargins(12, 6, 12, 6)
         grid.setHorizontalSpacing(10)
-        grid.setVerticalSpacing(5)
+        grid.setVerticalSpacing(2)
         self.device_values = {}
         rows = [
             ("ip_address", "wifi", "Address"),
@@ -1951,6 +1952,7 @@ class IoTTouchDashboard(QMainWindow):
             ("uptime", "clock", "Uptime"),
             ("arduino_mega", "plug", "Arduino"),
             ("web", "info", "Web app"),
+            ("app_key", "lock", "App key"),
         ]
         for r, (key, icon, title) in enumerate(rows):
             grid.addWidget(icon_label(icon, C["muted"], 18), r, 0)
@@ -1977,6 +1979,7 @@ class IoTTouchDashboard(QMainWindow):
         diag["ram_usage"] = diag["ram_usage"].split(" (")[0]
         diag["disk_usage"] = diag["disk_usage"].split(" (")[0]
         diag["web"] = f"http://{diag['ip_address']}:8000"
+        diag["app_key"] = app_access.app_key()
         for key, lbl in self.device_values.items():
             lbl.setText(str(diag.get(key, "N/A")))
 

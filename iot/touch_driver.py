@@ -2,20 +2,89 @@
 Touch Driver for 3.5" (480x320) TFT LCD Resistive Touchscreen (ADS7846 on SPI)
 Preserves calibrated 6-parameter affine transformation matrix and translates
 raw SPI touch input events into synthetic Qt mouse clicks.
+
+Resistive panels report garbage while the finger lands and lifts, and the kernel
+overlay does no debouncing, so every tap is filtered (filter_tap): too-short
+presses are ignored as ghost touches, the lift-off samples are dropped, and the
+tap position is the median of the remaining samples with outliers removed.
 """
 
 import os
 import json
 import struct
+import time
 import threading
 from pathlib import Path
 from PyQt5.QtCore import QPoint, Qt, QEvent
 from PyQt5.QtGui import QMouseEvent
-from PyQt5.QtWidgets import QPushButton
+from PyQt5.QtWidgets import QAbstractButton, QApplication
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_CALIB_PATH = SCRIPT_DIR / "config" / "touch_calibration.json"
 DEFAULT_EVENT_DEVICE = "/dev/input/by-path/platform-fe204000.spi-cs-1-event"
+
+MIN_SAMPLES = 3          # fewer samples than this = ghost touch
+LIFT_OFF_SAMPLES = 2     # last samples before release are unreliable
+OUTLIER_RAW = 150        # ~19 px on this panel (about 7.8 raw units per pixel)
+DEBOUNCE_S = 0.15        # ignore a new press this soon after the last tap
+
+
+def _median(v):
+    v = sorted(v)
+    n = len(v)
+    return v[n // 2] if n % 2 else (v[n // 2 - 1] + v[n // 2]) / 2.0
+
+
+def filter_tap(samples):
+    """Reduces the raw (x, y) samples of one press to a single point.
+    Returns ((raw_x, raw_y), info) or (None, reason)."""
+    n = len(samples)
+    if n < MIN_SAMPLES:
+        return None, f"ghost ({n} samples)"
+    pts = samples[:-LIFT_OFF_SAMPLES] if n > MIN_SAMPLES + LIFT_OFF_SAMPLES else samples
+    mx, my = _median([p[0] for p in pts]), _median([p[1] for p in pts])
+    kept = [p for p in pts if abs(p[0] - mx) <= OUTLIER_RAW and abs(p[1] - my) <= OUTLIER_RAW]
+    if len(kept) < 2:
+        return None, f"unstable ({n} samples)"
+    rx, ry = _median([p[0] for p in kept]), _median([p[1] for p in kept])
+    spread = max(max(abs(p[0] - rx), abs(p[1] - ry)) for p in kept)
+    return (rx, ry), {"samples": n, "kept": len(kept), "spread_raw": round(spread)}
+
+
+def read_taps(device, on_tap, on_reject=None):
+    """Blocking loop over the evdev device: calls on_tap(rx, ry, info) for each
+    filtered tap and on_reject(reason) for each rejected one."""
+    fmt = "qqHHi"  # 64-bit struct input_event: timeval (qq), type (H), code (H), value (i)
+    size = struct.calcsize(fmt)
+    samples, down, cx, cy = [], False, None, None
+    last_tap = 0.0
+    with open(device, "rb") as f:
+        while True:
+            data = f.read(size)
+            if len(data) < size:
+                return
+            _, _, typ, code, val = struct.unpack(fmt, data)
+            if typ == 3 and code == 0:        # ABS_X
+                cx = val
+            elif typ == 3 and code == 1:      # ABS_Y
+                cy = val
+            elif typ == 0:                    # SYN_REPORT: one complete sample
+                if down and cx is not None and cy is not None:
+                    samples.append((cx, cy))
+            elif typ == 1 and code == 330:    # BTN_TOUCH
+                if val == 1:
+                    down, samples = True, []
+                elif down:
+                    down = False
+                    point, info = filter_tap(samples)
+                    now = time.time()
+                    if point and now - last_tap < DEBOUNCE_S:
+                        point, info = None, "bounce"
+                    if point:
+                        last_tap = now
+                        on_tap(point[0], point[1], info)
+                    elif on_reject:
+                        on_reject(info)
 
 
 class HardwareTouchInjector(threading.Thread):
@@ -68,38 +137,8 @@ class HardwareTouchInjector(threading.Thread):
 
         print(f"[TouchDriver] Listening for touch input on: {dev}", flush=True)
         try:
-            with open(dev, "rb") as f:
-                cur_x = None
-                cur_y = None
-                touch_down = False
-
-                # struct input_event on 64-bit Linux: timeval (16 bytes: qq), type (H), code (H), value (i) = 24 bytes
-                event_format = "qqHHi"
-                event_size = struct.calcsize(event_format)
-
-                while self.running:
-                    data = f.read(event_size)
-                    if not data or len(data) < event_size:
-                        break
-
-                    sec, usec, ev_type, ev_code, ev_val = struct.unpack(event_format, data)
-
-                    if ev_type == 3:  # EV_ABS
-                        if ev_code == 0:  # ABS_X
-                            cur_x = ev_val
-                        elif ev_code == 1:  # ABS_Y
-                            cur_y = ev_val
-
-                    elif ev_type == 1:  # EV_KEY
-                        if ev_code == 330:  # BTN_TOUCH
-                            if ev_val == 1:
-                                touch_down = True
-                            elif ev_val == 0 and touch_down:
-                                touch_down = False
-                                if cur_x is not None and cur_y is not None:
-                                    self.process_touch(cur_x, cur_y)
-                                    cur_x, cur_y = None, None
-
+            read_taps(dev, lambda x, y, info: self.process_touch(x, y),
+                      lambda reason: print(f"[TouchDriver] Ignored touch: {reason}", flush=True))
         except Exception as e:
             print(f"[TouchDriver] Touch reading error: {e}", flush=True)
 
@@ -122,23 +161,24 @@ class HardwareTouchInjector(threading.Thread):
 def inject_qt_click(window, x: int, y: int):
     """
     Simulates a crisp touch click on the Qt widget under (x, y).
+    Taps go to an open modal dialog (e.g. the on-screen keyboard) when there is one.
     """
-    pos = QPoint(x, y)
-    widget = window.childAt(pos)
+    global_pos = window.mapToGlobal(QPoint(x, y))
+    top = QApplication.activeModalWidget() or window
+    pos = top.mapFromGlobal(global_pos)
+    widget = top.childAt(pos)
     if widget:
         target = widget
-        # Traverse up if child label inside QPushButton
-        while target and not isinstance(target, QPushButton) and target != window:
-            if isinstance(target.parent(), QPushButton):
-                target = target.parent()
-                break
+        # Traverse up if child label inside a button
+        while target and not isinstance(target, QAbstractButton) and target != top:
             target = target.parent()
 
-        if isinstance(target, QPushButton):
-            target.animateClick(85)
+        if isinstance(target, QAbstractButton):
+            if target.isEnabled():
+                target.animateClick(85)
         else:
-            local_pos = widget.mapFromGlobal(window.mapToGlobal(pos))
-            press = QMouseEvent(QEvent.MouseButtonPress, local_pos, pos, Qt.LeftButton, Qt.LeftButton, Qt.NoModifier)
-            release = QMouseEvent(QEvent.MouseButtonRelease, local_pos, pos, Qt.LeftButton, Qt.LeftButton, Qt.NoModifier)
+            local_pos = widget.mapFromGlobal(global_pos)
+            press = QMouseEvent(QEvent.MouseButtonPress, local_pos, global_pos, Qt.LeftButton, Qt.LeftButton, Qt.NoModifier)
+            release = QMouseEvent(QEvent.MouseButtonRelease, local_pos, global_pos, Qt.LeftButton, Qt.LeftButton, Qt.NoModifier)
             widget.event(press)
             widget.event(release)

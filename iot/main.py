@@ -13,8 +13,13 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR))
 
+# Touch input comes only from touch_driver (calibrated + ghost-filtered). Qt's
+# linuxfb platform would otherwise also read the ADS7846 through libinput/evdev
+# with raw, uncalibrated coordinates, so each tap clicked a second, wrong spot.
+os.environ["QT_QPA_FB_DISABLE_INPUT"] = "1"
+
 from PyQt5.QtWidgets import QApplication
-from dashboard_app import IoTTouchDashboard, BLYNK_THEME
+from dashboard_app import IoTTouchDashboard, THEME, px_font
 from web_server import web_app
 import uvicorn
 
@@ -38,7 +43,8 @@ def main():
     # Start PyQt5 Touchscreen GUI
     print("[GUI] Launching native 480x320 Touchscreen Dashboard...", flush=True)
     app = QApplication(sys.argv)
-    app.setStyleSheet(BLYNK_THEME)
+    app.setFont(px_font(13))
+    app.setStyleSheet(THEME)
 
     window = IoTTouchDashboard(fullscreen=fullscreen)
     sys.exit(app.exec_())

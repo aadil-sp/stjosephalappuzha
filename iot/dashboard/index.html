@@ -1,0 +1,982 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0f1410">
+<title>Smart Farm</title>
+<style>
+  :root {
+    --bg: #0f1410; --surface: #172019; --raised: #1f2a21; --line: #2c3a2e;
+    --text: #eef3ea; --muted: #93a394; --dim: #5f6e60;
+    --leaf: #8fd16a; --leaf-bg: #22331c; --water: #4cb8e0; --sun: #f4b04a;
+    --tank: #3fc1b0; --fert: #c38fe0; --light: #f5d76e; --alert: #ef5d50; --alert-bg: #3a1a17; --sim-bg: #3a2c12;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, "DejaVu Sans", sans-serif;
+    min-height: 100vh; padding: 16px;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; display: grid; gap: 14px; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+  .ic { width: 22px; height: 22px; flex: none; stroke: currentColor; stroke-width: 2;
+        stroke-linecap: round; stroke-linejoin: round; fill: none; }
+  .ic.sm { width: 18px; height: 18px; }
+  .ic.lg { width: 28px; height: 28px; }
+
+  /* Header */
+  header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .brand { display: flex; align-items: center; gap: 10px; margin-right: auto; }
+  .brand .ic { color: var(--leaf); width: 30px; height: 30px; }
+  .brand h1 { font-size: 22px; letter-spacing: -0.01em; }
+  .brand small { display: block; color: var(--muted); font-size: 12px; font-weight: 500; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px;
+          font-size: 13px; font-weight: 700; letter-spacing: 0.04em; }
+  .pill::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+  .pill.online { color: var(--leaf); background: var(--leaf-bg); }
+  .pill.sim { color: var(--sun); background: var(--sim-bg); }
+  .pill.offline { color: var(--alert); background: var(--alert-bg); }
+  .clock { color: var(--muted); font-weight: 700; font-variant-numeric: tabular-nums; }
+
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+  .caps { font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .row { display: flex; align-items: center; gap: 8px; }
+
+  /* Overview */
+  .overview { display: grid; grid-template-columns: 300px 1fr; gap: 14px; }
+  .gauge-card { padding: 14px; display: flex; flex-direction: column; gap: 6px; }
+  .gauge-card .row .ic { color: var(--leaf); }
+  #gauge { width: 100%; max-width: 260px; margin: 0 auto; display: block; }
+  .crop-chip { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 10px;
+               background: transparent; border: 1px solid var(--line); border-radius: 10px; color: var(--muted); font-weight: 700; }
+  .crop-chip:hover { border-color: var(--leaf); color: var(--text); }
+  .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .tile { padding: 14px; display: flex; flex-direction: column; gap: 4px; min-height: 120px; }
+  .tile .val { font-size: 34px; font-weight: 800; letter-spacing: -0.02em; margin-top: auto;
+               font-variant-numeric: tabular-nums; }
+  .tile .val small { font-size: 15px; color: var(--muted); font-weight: 700; margin-left: 3px; }
+  .tile .val.none { color: var(--dim); }
+  .tile .sub { font-size: 13px; color: var(--muted); }
+  .tile .sub.warn { color: var(--alert); }
+
+  /* Controls */
+  .controls { display: grid; grid-template-columns: 300px 1fr; gap: 14px; }
+  .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 48px;
+         padding: 0 16px; border-radius: 12px; border: 1px solid var(--line); background: var(--raised);
+         font-weight: 700; font-size: 15px; transition: background .15s, border-color .15s, color .15s; }
+  .btn:hover { border-color: var(--dim); }
+  .btn:active { transform: translateY(1px); }
+  .btn:disabled { opacity: .45; cursor: default; }
+  .btn.primary { background: var(--leaf); color: var(--bg); border-color: var(--leaf); }
+  .btn.selected { background: var(--leaf-bg); color: var(--leaf); border: 2px solid var(--leaf); }
+  .btn.danger { background: var(--alert-bg); color: var(--alert); border-color: #6b2a24; }
+  .btn.icon-only { padding: 0; width: 48px; }
+  #pump { min-height: 64px; font-size: 18px; letter-spacing: .02em; }
+  #pump .ic { width: 28px; height: 28px; }
+  .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .seg .btn { min-height: 64px; }
+
+  /* Settings panel */
+  .panel { overflow: hidden; }
+  .tabs { display: flex; gap: 4px; padding: 8px; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab { display: inline-flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 10px;
+         border: 1px solid transparent; background: transparent; color: var(--muted); font-weight: 700; white-space: nowrap; }
+  .tab:hover { color: var(--text); }
+  .tab[aria-selected="true"] { background: var(--leaf-bg); color: var(--leaf); border-color: var(--leaf); }
+  .tabpanel { padding: 16px; }
+  .tabpanel[hidden] { display: none; }
+  .hint { color: var(--muted); font-size: 13px; margin-bottom: 12px; }
+
+  .crops { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+  .crop { display: flex; align-items: center; gap: 12px; padding: 12px 14px; text-align: left;
+          background: var(--raised); border: 1px solid var(--line); border-radius: 12px; }
+  .crop:hover { border-color: var(--dim); }
+  .crop b { display: block; font-size: 15px; }
+  .crop span { font-size: 13px; color: var(--muted); }
+  .crop[aria-pressed="true"] { background: var(--leaf-bg); border: 2px solid var(--leaf); }
+  .crop .ic { width: 28px; height: 28px; }
+
+  .steppers { display: grid; gap: 10px; }
+  .stepper { display: flex; align-items: center; gap: 12px; padding: 10px 12px; background: var(--raised);
+             border: 1px solid var(--line); border-radius: 12px; }
+  .stepper .lbl { flex: 1; min-width: 0; }
+  .stepper .lbl span { display: block; font-size: 13px; color: var(--muted); font-weight: 600; }
+  .stepper .lbl b { font-size: 24px; font-variant-numeric: tabular-nums; }
+  .stepper input[type=range] { flex: 1; min-width: 80px; accent-color: var(--leaf); height: 28px; }
+  .num { width: 96px; min-height: 44px; padding: 0 10px; border-radius: 10px; border: 1px solid var(--line);
+         background: var(--bg); color: var(--text); font: inherit; font-weight: 700; font-size: 18px; text-align: right; }
+  .num:focus { outline: 2px solid var(--leaf); outline-offset: 1px; }
+  .band { margin-top: 14px; }
+  .band-track { position: relative; height: 12px; border-radius: 6px; background: var(--raised); margin: 10px 0 6px; }
+  .band-fill { position: absolute; top: 0; bottom: 0; background: var(--leaf-bg); }
+  .band-mark { position: absolute; top: -4px; width: 4px; height: 20px; border-radius: 2px; transform: translateX(-2px); }
+  .band-soil { position: absolute; top: -2px; width: 16px; height: 16px; border-radius: 50%; background: var(--text);
+               transform: translateX(-8px); border: 3px solid var(--bg); }
+  .band-legend { display: flex; justify-content: space-between; font-size: 12px; color: var(--dim); }
+
+  .wifi-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .wifi-head .now { flex: 1; font-weight: 700; color: var(--leaf); }
+  .wifi-list { display: grid; gap: 8px; }
+  .net { display: flex; align-items: center; gap: 10px; padding: 12px 14px; text-align: left;
+         background: var(--raised); border: 1px solid var(--line); border-radius: 12px; }
+  .net .name { flex: 1; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .net .sig { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+  .net.active { border-color: var(--leaf); color: var(--leaf); }
+  .connect { display: none; gap: 10px; margin-top: 12px; flex-wrap: wrap; align-items: center; }
+  .connect.open { display: flex; }
+  .connect input { flex: 1; min-width: 180px; min-height: 48px; padding: 0 14px; border-radius: 12px;
+                   border: 1px solid var(--line); background: var(--bg); color: var(--text); font: inherit; }
+  .connect input:focus { outline: 2px solid var(--leaf); outline-offset: 1px; }
+  .msg { margin-top: 10px; font-size: 14px; font-weight: 600; min-height: 1.4em; }
+
+  .facts { display: grid; grid-template-columns: auto auto 1fr; gap: 10px 12px; align-items: center; margin-bottom: 16px; }
+  .facts .ic { color: var(--muted); }
+  .facts span { color: var(--muted); }
+  .facts b { font-variant-numeric: tabular-nums; }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+  .pins { display: grid; grid-template-columns: auto 1fr auto; gap: 10px 12px; align-items: center; }
+  .pins b { color: var(--leaf); font-family: ui-monospace, "DejaVu Sans Mono", monospace; }
+  .note { margin-top: 14px; color: var(--muted); font-size: 13px; }
+
+  /* Weather */
+  .wx { padding: 14px; display: grid; grid-template-columns: auto 1fr; gap: 6px 18px; align-items: center; }
+  .wx-now { display: flex; align-items: center; gap: 12px; }
+  .wx-now .ic { width: 52px; height: 52px; }
+  .wx-now b { font-size: 38px; font-weight: 800; letter-spacing: -0.02em; }
+  .wx-now span { display: block; color: var(--muted); font-size: 13px; }
+  .wx-days { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; text-align: center; }
+  .wx-days div { display: grid; justify-items: center; gap: 2px; font-size: 13px; }
+  .wx-days b { font-size: 13px; }
+  .wx-days .rain { color: var(--water); font-size: 12px; }
+
+  /* Today's advice + fertilizer pump */
+  .tanks { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .tankcard { padding: 14px; display: grid; gap: 10px; align-content: start; }
+  .adv { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; align-items: start; }
+  .adv .ic { grid-row: span 2; margin-top: 2px; }
+  .adv b { font-size: 17px; }
+  .adv span { color: var(--muted); font-size: 13px; }
+  .tips { color: var(--sun); font-size: 13px; margin: 0; padding-left: 18px; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--raised);
+          font-weight: 700; font-size: 13px; }
+  .chip:hover { border-color: var(--dim); }
+  .dose-msg { font-size: 13px; color: var(--muted); min-height: 1.4em; }
+  .banner { display: flex; align-items: center; gap: 12px; padding: 12px 16px; margin-bottom: 16px;
+            border: 2px solid var(--alert); background: var(--alert-bg); border-radius: 14px; }
+  .banner .ic { color: var(--alert); flex: none; }
+  .banner { flex-wrap: wrap; }
+  .banner div { flex: 1 1 200px; }
+  .banner b { color: var(--alert); display: block; font-size: 17px; }
+  .banner span { color: var(--text); font-size: 13px; }
+  .btn.water { background: var(--water); color: var(--bg); border-color: var(--water); }
+  .btn.fert { background: var(--fert); color: var(--bg); border-color: var(--fert); }
+
+  /* Farm AI */
+  .ai { padding: 16px; margin-top: 16px; display: grid; gap: 14px; }
+  .ai h2 { margin: 0; font-size: 20px; color: var(--leaf); }
+  .ai .sum { color: var(--text); margin: 4px 0 0; }
+  .ai .plan { display: grid; gap: 4px; font-size: 14px; }
+  .ai .acts { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+  .ai .act { background: var(--raised); border-radius: 10px; padding: 10px 12px; font-size: 13px; color: var(--muted); }
+  .ai .act b { display: block; font-size: 14px; }
+  .ai .act i { font-style: normal; color: var(--dim); font-size: 12px; margin-left: 6px; }
+  .ai .tools { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .ai .tool { border: 1px solid var(--line); border-radius: 12px; padding: 12px; display: grid; gap: 8px; align-content: start; }
+  .ai .tool form { display: flex; gap: 6px; }
+  .ai .tool input, #ai-key { flex: 1; min-width: 0; min-height: 44px; padding: 0 12px; border-radius: 10px;
+                              border: 1px solid var(--line); background: var(--bg); color: var(--text); font: inherit; }
+  .ai .tool input:focus, #ai-key:focus { outline: 2px solid var(--leaf); outline-offset: 1px; }
+  .ai .out { font-size: 13px; color: var(--muted); white-space: pre-line; }
+  .ai .out b { color: var(--text); }
+  .ai .sugg { display: flex; gap: 8px; align-items: center; font-size: 13px; }
+  .ai .sugg span { flex: 1; color: var(--muted); }
+  .ai .sugg .btn { min-height: 34px; }
+  .ai .busy { color: var(--leaf); }
+  @media (max-width: 900px) { .ai .tools { grid-template-columns: 1fr; } }
+
+  @media (max-width: 760px) {
+    body { padding: 12px; }
+    .overview, .controls, .tanks { grid-template-columns: 1fr; }
+    .wx { grid-template-columns: 1fr; }
+    .tile .val { font-size: 28px; }
+    .tile { min-height: 104px; }
+    .brand small { display: none; }
+  }
+  @media (max-width: 380px) {
+    .tiles { gap: 10px; }
+    .tile { padding: 12px; }
+  }
+</style>
+</head>
+<body>
+<!--ICONS-->
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <svg class="ic"><use href="#i-leaf"/></svg>
+      <div><h1>Smart Farm</h1><small>Alappuzha · Irrigation controller</small></div>
+    </div>
+    <span id="status" class="pill offline">OFFLINE</span>
+    <span id="clock" class="clock">--:--</span>
+  </header>
+
+  <div class="banner" id="tank-banner" role="alert" hidden>
+    <svg class="ic"><use href="#i-bell"/></svg>
+    <div><b>Rain tank is full</b><span id="tank-banner-text"></span></div>
+    <button class="btn primary" onclick="post('/api/tank/reset')"><svg class="ic"><use href="#i-check"/></svg>Released · Reset</button>
+  </div>
+
+  <section class="card wx" aria-label="Alappuzha weather">
+    <div class="wx-now">
+      <svg class="ic" id="wx-icon" style="color:var(--light)"><use href="#i-cloud"/></svg>
+      <div><b id="wx-temp">--°</b><span id="wx-label">Alappuzha · loading forecast…</span><span id="wx-extra"></span></div>
+    </div>
+    <div class="wx-days" id="wx-days"></div>
+  </section>
+
+  <div class="overview">
+    <section class="card gauge-card" aria-label="Soil moisture">
+      <div class="row"><svg class="ic sm"><use href="#i-sprout"/></svg><span class="caps">Soil moisture</span></div>
+      <svg id="gauge" viewBox="0 0 200 172" role="img" aria-label="Soil moisture gauge">
+        <path id="g-track" fill="none" stroke="var(--raised)" stroke-width="14" stroke-linecap="round"/>
+        <path id="g-value" fill="none" stroke="var(--leaf)" stroke-width="14" stroke-linecap="round" pathLength="100"/>
+        <line id="g-dry-halo" stroke="var(--surface)" stroke-width="9" stroke-linecap="round"/>
+        <line id="g-stop-halo" stroke="var(--surface)" stroke-width="9" stroke-linecap="round"/>
+        <line id="g-dry" stroke="var(--sun)" stroke-width="4" stroke-linecap="round"/>
+        <line id="g-stop" stroke="var(--water)" stroke-width="4" stroke-linecap="round"/>
+        <text id="g-num" x="100" y="112" text-anchor="middle" fill="var(--text)" font-size="46" font-weight="800">--</text>
+        <text id="g-cap" x="100" y="150" text-anchor="middle" fill="var(--dim)" font-size="16" font-weight="700">No signal</text>
+      </svg>
+      <button class="crop-chip" id="crop-chip" onclick="openTab('crops', true)">
+        <svg class="ic sm"><use href="#i-sprout"/></svg><span id="crop-text">--</span>
+      </button>
+    </section>
+
+    <div class="tiles">
+      <section class="card tile" id="t-temp">
+        <div class="row"><svg class="ic sm" style="color:var(--sun)"><use href="#i-thermo"/></svg><span class="caps">Temperature</span></div>
+        <div class="val none">--</div><div class="sub">--</div>
+      </section>
+      <section class="card tile" id="t-hum">
+        <div class="row"><svg class="ic sm" style="color:var(--water)"><use href="#i-drop"/></svg><span class="caps">Humidity</span></div>
+        <div class="val none">--</div><div class="sub">--</div>
+      </section>
+      <section class="card tile" id="t-tank">
+        <div class="row"><svg class="ic sm" style="color:var(--tank)"><use href="#i-tank"/></svg><span class="caps">Rain tank</span></div>
+        <div class="val none">--</div><div class="sub">--</div>
+      </section>
+      <section class="card tile" id="t-weather">
+        <div class="row"><svg class="ic sm" id="w-icon" style="color:var(--light)"><use href="#i-sun"/></svg><span class="caps">Field rain</span></div>
+        <div class="val none">--</div><div class="sub">--</div>
+      </section>
+    </div>
+  </div>
+
+  <div class="controls">
+    <button class="btn" id="pump" onclick="post('/api/pump/toggle')">
+      <svg class="ic"><use href="#i-power"/></svg><span>PUMP 1 OFF</span>
+    </button>
+    <div class="seg" role="group" aria-label="Irrigation mode">
+      <button class="btn" id="mode-auto" onclick="setMode('AUTO')"><svg class="ic"><use href="#i-auto"/></svg>AUTO</button>
+      <button class="btn" id="mode-manual" onclick="setMode('MANUAL')"><svg class="ic"><use href="#i-hand"/></svg>MANUAL</button>
+    </div>
+  </div>
+
+  <div class="tanks">
+    <section class="card tankcard" id="today" aria-label="Today's advice">
+      <div class="row"><svg class="ic sm" style="color:var(--leaf)"><use href="#i-calendar"/></svg><span class="caps">Today</span>
+        <span class="hint" id="adv-head" style="margin:0 0 0 auto"></span></div>
+      <div class="adv"><svg class="ic" style="color:var(--water)"><use href="#i-drop"/></svg><b id="adv-w-title">…</b><span id="adv-w-text"></span></div>
+      <div class="adv"><svg class="ic" style="color:var(--fert)"><use href="#i-flask"/></svg><b id="adv-f-title">…</b><span id="adv-f-text"></span></div>
+      <ul class="tips" id="adv-tips"></ul>
+    </section>
+    <section class="card tankcard" id="tc-fert">
+      <div class="row"><svg class="ic sm" style="color:var(--fert)"><use href="#i-flask"/></svg><span class="caps">Pump 2 · fertilizer</span>
+        <span class="hint" id="fert-today" style="margin:0 0 0 auto"></span></div>
+      <button class="btn" id="fert-pump" onclick="post('/api/fert/toggle')">
+        <svg class="ic"><use href="#i-power"/></svg><span>Pump 2 OFF</span></button>
+      <div class="chips" id="fert-chips"></div>
+      <button class="btn fert" id="fert-sugg" hidden onclick="runSuggested()"><svg class="ic"><use href="#i-play"/></svg><span></span></button>
+      <div class="dose-msg" id="fert-msg"></div>
+    </section>
+  </div>
+
+  <section class="card ai" id="farm-ai" aria-label="Farm AI">
+    <div class="row"><svg class="ic sm" style="color:#e07fb0"><use href="#i-sparkle"/></svg><span class="caps">Farm AI</span>
+      <span class="hint" id="ai-meta" style="margin:0 0 0 auto"></span>
+      <button class="btn" id="ai-refresh" onclick="aiRun('brief')" style="min-height:34px"><svg class="ic sm"><use href="#i-refresh"/></svg>Refresh</button></div>
+    <div id="ai-brief"><p class="hint" style="margin:0">Loading…</p></div>
+    <div class="tools">
+      <div class="tool">
+        <span class="caps">Crop profile</span>
+        <form onsubmit="aiCrop(event)"><input id="ai-crop-in" placeholder="Any crop, e.g. okra, banana" maxlength="60">
+          <button class="btn" type="submit">Predict</button></form>
+        <div class="out" id="ai-crop-out"></div>
+        <button class="btn primary" id="ai-crop-apply" hidden onclick="aiApply('crop')"><svg class="ic sm"><use href="#i-check"/></svg>Use as Custom crop</button>
+      </div>
+      <div class="tool">
+        <span class="caps">Settings check</span>
+        <button class="btn" onclick="aiRun('params')"><svg class="ic sm"><use href="#i-sparkle"/></svg>Check my settings</button>
+        <div class="out" id="ai-params-out"></div>
+        <div id="ai-params-list" style="display:grid;gap:6px"></div>
+      </div>
+      <div class="tool">
+        <span class="caps">Ask</span>
+        <form onsubmit="aiAsk(event)"><input id="ai-ask-in" placeholder="e.g. Is it safe to spray today?" maxlength="300">
+          <button class="btn" type="submit">Ask</button></form>
+        <div class="out" id="ai-ask-out"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card panel" id="settings">
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" data-tab="crops"><svg class="ic sm"><use href="#i-sprout"/></svg>Crops</button>
+      <button class="tab" role="tab" data-tab="cutoffs"><svg class="ic sm"><use href="#i-gauge"/></svg>Cutoffs</button>
+      <button class="tab" role="tab" data-tab="tank"><svg class="ic sm"><use href="#i-tank"/></svg>Tank</button>
+      <button class="tab" role="tab" data-tab="sim"><svg class="ic sm"><use href="#i-sliders"/></svg>Simulator</button>
+      <button class="tab" role="tab" data-tab="wifi"><svg class="ic sm"><use href="#i-wifi"/></svg>Wi-Fi</button>
+      <button class="tab" role="tab" data-tab="device"><svg class="ic sm"><use href="#i-chip"/></svg>Device</button>
+      <button class="tab" role="tab" data-tab="wiring"><svg class="ic sm"><use href="#i-plug"/></svg>Wiring</button>
+    </div>
+
+    <div class="tabpanel" id="p-crops" role="tabpanel">
+      <p class="hint">Pick what is planted. The pump cutoffs follow the crop's moisture range.</p>
+      <div class="crops" id="crops"></div>
+    </div>
+
+    <div class="tabpanel" id="p-cutoffs" role="tabpanel" hidden>
+      <div class="steppers">
+        <div class="stepper">
+          <svg class="ic" style="color:var(--sun)"><use href="#i-power"/></svg>
+          <div class="lbl"><span>Pump starts when soil is below</span><b id="dry-val">--</b></div>
+          <button class="btn icon-only" onclick="stepCutoff('dry',-5)" aria-label="Lower start cutoff"><svg class="ic"><use href="#i-minus"/></svg></button>
+          <button class="btn icon-only" onclick="stepCutoff('dry',5)" aria-label="Raise start cutoff"><svg class="ic"><use href="#i-plus"/></svg></button>
+        </div>
+        <div class="stepper">
+          <svg class="ic" style="color:var(--water)"><use href="#i-drop"/></svg>
+          <div class="lbl"><span>Pump stops when soil reaches</span><b id="stop-val">--</b></div>
+          <button class="btn icon-only" onclick="stepCutoff('stop',-5)" aria-label="Lower stop cutoff"><svg class="ic"><use href="#i-minus"/></svg></button>
+          <button class="btn icon-only" onclick="stepCutoff('stop',5)" aria-label="Raise stop cutoff"><svg class="ic"><use href="#i-plus"/></svg></button>
+        </div>
+      </div>
+      <div class="band">
+        <span class="caps">Watering band</span>
+        <div class="band-track">
+          <div class="band-fill" id="band-fill"></div>
+          <div class="band-mark" id="band-dry" style="background:var(--sun)"></div>
+          <div class="band-mark" id="band-stop" style="background:var(--water)"></div>
+          <div class="band-soil" id="band-soil" hidden></div>
+        </div>
+        <div class="band-legend"><span>0%</span><span id="band-now"></span><span>100%</span></div>
+      </div>
+    </div>
+
+    <div class="tabpanel" id="p-tank" role="tabpanel" hidden>
+      <p class="hint">The rain tank has an ultrasonic sensor at the top measuring the distance down to the water.
+        Set the tank height (sensor to floor), the gap left when full, and the surface area, which turns
+        the level into litres (1 cm over 1000 cm² = 1 L; round tank: 0.785 × diameter²). When the level reaches
+        the alert level, the Pi and this page ask you to release the water.</p>
+      <div class="stepper" style="margin-bottom:12px">
+        <svg class="ic" style="color:var(--tank)"><use href="#i-tank"/></svg>
+        <div class="lbl"><span>Now</span><b id="tank-now">--</b></div>
+        <span class="hint" id="tank-dist" style="margin:0"></span>
+      </div>
+      <form class="steppers" id="tank-form" onsubmit="saveTank(event)">
+        <label class="stepper">
+          <svg class="ic" style="color:var(--tank)"><use href="#i-tank"/></svg>
+          <div class="lbl"><span>Tank height — sensor to floor (cm)</span></div>
+          <input class="num" type="number" id="tank-height" min="7" max="450" step="1" required>
+        </label>
+        <label class="stepper">
+          <svg class="ic" style="color:var(--water)"><use href="#i-drop"/></svg>
+          <div class="lbl"><span>Gap when full — sensor to water (cm)</span></div>
+          <input class="num" type="number" id="tank-gap" min="2" max="400" step="1" required>
+        </label>
+        <label class="stepper">
+          <svg class="ic" style="color:var(--muted)"><use href="#i-ruler"/></svg>
+          <div class="lbl"><span>Surface area (cm²)</span></div>
+          <input class="num" type="number" id="tank-area" min="50" max="500000" step="1" required>
+        </label>
+        <label class="stepper">
+          <svg class="ic" style="color:var(--alert)"><use href="#i-bell"/></svg>
+          <div class="lbl"><span>Alert when full at (%)</span></div>
+          <input class="num" type="number" id="tank-alert" min="50" max="100" step="1" required>
+        </label>
+        <div class="actions">
+          <button class="btn primary" type="submit"><svg class="ic"><use href="#i-check"/></svg>Save</button>
+          <button class="btn" type="button" onclick="markTank('empty')">Tank is empty now</button>
+          <button class="btn" type="button" onclick="markTank('full')">Tank is full now</button>
+        </div>
+      </form>
+      <div class="msg" id="tank-msg"></div>
+    </div>
+
+    <div class="tabpanel" id="p-sim" role="tabpanel" hidden>
+      <p class="hint">Fake sensor values for testing. While on, the pump follows the simulated soil value.</p>
+      <button class="btn" id="sim-toggle" onclick="post('/api/simulator/toggle')" style="width:100%;margin-bottom:12px">
+        <svg class="ic"><use href="#i-sliders"/></svg><span>Simulator OFF</span>
+      </button>
+      <div class="steppers">
+        <label class="stepper"><svg class="ic" style="color:var(--sun)"><use href="#i-thermo"/></svg>
+          <div class="lbl" style="flex:none;width:120px"><span>Temperature</span><b id="sim-t-val">--</b></div>
+          <input type="range" id="sim-t" min="0" max="50" step="1"></label>
+        <label class="stepper"><svg class="ic" style="color:var(--water)"><use href="#i-drop"/></svg>
+          <div class="lbl" style="flex:none;width:120px"><span>Humidity</span><b id="sim-h-val">--</b></div>
+          <input type="range" id="sim-h" min="0" max="100" step="1"></label>
+        <label class="stepper"><svg class="ic" style="color:var(--leaf)"><use href="#i-sprout"/></svg>
+          <div class="lbl" style="flex:none;width:120px"><span>Soil moisture</span><b id="sim-s-val">--</b></div>
+          <input type="range" id="sim-s" min="0" max="100" step="1"></label>
+        <label class="stepper"><svg class="ic" style="color:var(--tank)"><use href="#i-tank"/></svg>
+          <div class="lbl" style="flex:none;width:120px"><span>Rain tank</span><b id="sim-k-val">--</b></div>
+          <input type="range" id="sim-k" min="0" max="100" step="1"></label>
+      </div>
+    </div>
+
+    <div class="tabpanel" id="p-wifi" role="tabpanel" hidden>
+      <div class="wifi-head">
+        <svg class="ic" style="color:var(--leaf)"><use href="#i-wifi"/></svg>
+        <span class="now" id="wifi-now">--</span>
+        <button class="btn icon-only" onclick="scanWifi()" aria-label="Rescan"><svg class="ic"><use href="#i-refresh"/></svg></button>
+      </div>
+      <div class="wifi-list" id="wifi-list"></div>
+      <form class="connect" id="wifi-form" onsubmit="connectWifi(event)">
+        <input type="password" id="wifi-pass" placeholder="Password" autocomplete="off">
+        <button class="btn primary" type="submit"><svg class="ic"><use href="#i-check"/></svg><span id="wifi-target">Connect</span></button>
+      </form>
+      <div class="msg" id="wifi-msg"></div>
+    </div>
+
+    <div class="tabpanel" id="p-device" role="tabpanel" hidden>
+      <div class="facts" id="facts"></div>
+      <p class="hint"><b>Farm AI key.</b> Create a key at aistudio.google.com (Get API key) and paste it here.
+        It is saved on the Pi in <code>config/.env</code> and never shown again.</p>
+      <form class="steppers" style="margin-bottom:16px" onsubmit="saveAIKey(event)">
+        <label class="stepper"><svg class="ic" style="color:#e07fb0"><use href="#i-sparkle"/></svg>
+          <div class="lbl"><span>Gemini API key</span><b id="ai-key-state">--</b></div>
+          <input type="password" id="ai-key" placeholder="Paste key" autocomplete="off" style="flex:1;min-width:0"></label>
+        <div class="actions"><button class="btn primary" type="submit"><svg class="ic"><use href="#i-check"/></svg>Save key</button>
+          <button class="btn" type="button" onclick="removeAIKey()">Remove key</button></div>
+      </form>
+      <div class="msg" id="ai-key-msg" style="margin:-8px 0 16px"></div>
+      <p class="hint">Farm setup for today's advice. Measure a pump's flow by timing how long it takes to fill a 10 L bucket.</p>
+      <form class="steppers" style="margin-bottom:16px" onsubmit="saveFarm(event)">
+        <label class="stepper"><svg class="ic" style="color:var(--leaf)"><use href="#i-sprout"/></svg>
+          <div class="lbl"><span>Crop stage</span></div>
+          <select class="num" id="farm-stage" style="width:auto">
+            <option value="early">Young plants</option><option value="mid">Flowering / fruiting</option>
+            <option value="late">Near harvest</option></select></label>
+        <label class="stepper"><svg class="ic" style="color:var(--muted)"><use href="#i-ruler"/></svg>
+          <div class="lbl"><span>Field area (m²)</span></div>
+          <input class="num" type="number" id="farm-field_area_m2" min="0.5" max="100000" step="0.1" required></label>
+        <label class="stepper"><svg class="ic" style="color:var(--fert)"><use href="#i-flask"/></svg>
+          <div class="lbl"><span>Fertilizer per feed (L)</span></div>
+          <input class="num" type="number" id="farm-feed_litres" min="0.1" max="500" step="0.1" required></label>
+        <label class="stepper"><svg class="ic" style="color:var(--water)"><use href="#i-drop"/></svg>
+          <div class="lbl"><span>Pump 1 flow (L/min)</span></div>
+          <input class="num" type="number" id="farm-water_lpm" min="0.1" max="500" step="0.1" required></label>
+        <label class="stepper"><svg class="ic" style="color:var(--fert)"><use href="#i-flask"/></svg>
+          <div class="lbl"><span>Pump 2 flow (L/min)</span></div>
+          <input class="num" type="number" id="farm-fert_lpm" min="0.05" max="100" step="0.05" required></label>
+        <label class="stepper"><svg class="ic" style="color:var(--fert)"><use href="#i-clock"/></svg>
+          <div class="lbl"><span>Pump 2 auto-off (minutes)</span></div>
+          <input class="num" type="number" id="farm-fert_manual_max_min" min="1" max="60" step="1" required></label>
+        <div class="actions"><button class="btn primary" type="submit"><svg class="ic"><use href="#i-check"/></svg>Save farm setup</button></div>
+      </form>
+      <div class="actions">
+        <button class="btn" onclick="restartApp()"><svg class="ic"><use href="#i-refresh"/></svg>Restart app</button>
+        <button class="btn danger" onclick="rebootPi()"><svg class="ic"><use href="#i-power"/></svg>Reboot Pi</button>
+      </div>
+      <div class="msg" id="device-msg"></div>
+    </div>
+
+    <div class="tabpanel" id="p-wiring" role="tabpanel" hidden>
+      <div class="pins" id="pins"></div>
+      <p class="hint" style="margin-top:14px">Pump direction. Both pumps run from the motor driver (keep the ENA / ENB
+        jumpers on). A DC pump spinning backwards still runs but pumps weakly: reverse it here.</p>
+      <div class="steppers">
+        <label class="stepper"><svg class="ic" style="color:var(--water)"><use href="#i-power"/></svg>
+          <div class="lbl"><span>Pump 1 direction</span></div>
+          <select class="num" id="dir-pump" style="width:auto" onchange="setDir('pump', this.value)">
+            <option value="FWD">Forward</option><option value="REV">Reversed</option></select></label>
+        <label class="stepper"><svg class="ic" style="color:var(--fert)"><use href="#i-power"/></svg>
+          <div class="lbl"><span>Pump 2 direction</span></div>
+          <select class="num" id="dir-fert" style="width:auto" onchange="setDir('fert', this.value)">
+            <option value="FWD">Forward</option><option value="REV">Reversed</option></select></label>
+      </div>
+      <p class="hint" style="margin-top:14px">Wiring test: one driver input HIGH for 5 s, all others LOW. IN1 / IN2 should
+        spin pump 1 (opposite ways), IN3 / IN4 pump 2.</p>
+      <div class="actions" id="input-tests">
+        <button class="btn" onclick="post('/api/test/input/1')">Test IN1 (D5)</button>
+        <button class="btn" onclick="post('/api/test/input/2')">Test IN2 (D7)</button>
+        <button class="btn" onclick="post('/api/test/input/3')">Test IN3 (D6)</button>
+        <button class="btn" onclick="post('/api/test/input/4')">Test IN4 (D8)</button>
+      </div>
+      <div class="msg" id="test-msg"></div>
+      <p class="note">Mega ↔ Pi over USB (/dev/ttyACM0 at 115200 baud). Ultrasonic sensor: VCC to 5V, GND to GND.
+        Pumps run from the motor driver: its 12V input from the pump supply, its GND joined to the Mega GND.
+        Never power a pump from the Mega's 5V pin.</p>
+    </div>
+  </section>
+</div>
+
+<script>
+const CROP_COLORS = { tomato: '#ef6a5a', paddy: '#e9c46a', chilli: '#e4572e', potato: '#c89f6b',
+                      corn: '#f2c14e', arid: '#8fd16a', onion: '#c77dba', custom: '#93a394' };
+const $ = id => document.getElementById(id);
+const icon = (name, cls = 'ic', color) =>
+  `<svg class="${cls}"${color ? ` style="color:${color}"` : ''}><use href="#i-${name}"/></svg>`;
+let T = null;          // latest telemetry
+let crops = {};
+let wifiTarget = null;
+
+async function post(url, body) {
+  const opts = { method: 'POST' };
+  if (body) { opts.headers = { 'Content-Type': 'application/json' }; opts.body = JSON.stringify(body); }
+  const res = await fetch(url, opts);
+  refresh();
+  if (!url.startsWith('/api/simulator')) loadAdvice();
+  return res.ok ? res.json() : null;
+}
+
+/* ---------- gauge ---------- */
+const G = { cx: 100, cy: 98, r: 76, start: 210, sweep: 240 };
+function gPoint(frac, r = G.r) {
+  const a = (G.start - G.sweep * frac) * Math.PI / 180;
+  return [G.cx + r * Math.cos(a), G.cy - r * Math.sin(a)];
+}
+(function initGauge() {
+  const [x0, y0] = gPoint(0), [x1, y1] = gPoint(1);
+  const d = `M${x0} ${y0} A${G.r} ${G.r} 0 1 1 ${x1} ${y1}`;
+  $('g-track').setAttribute('d', d);
+  $('g-value').setAttribute('d', d);
+})();
+function placeTick(el, pct) {
+  const f = Math.max(0, Math.min(1, pct / 100));
+  const [a, b] = gPoint(f, G.r - 12), [c, d] = gPoint(f, G.r + 12);
+  el.setAttribute('x1', a); el.setAttribute('y1', b); el.setAttribute('x2', c); el.setAttribute('y2', d);
+}
+function soilState(soil, dry, stop) {
+  if (soil === null) return ['No signal', 'var(--dim)'];
+  if (soil < dry) return ['Too dry', 'var(--sun)'];
+  if (soil > stop) return ['Wet', 'var(--water)'];
+  return ['Good', 'var(--leaf)'];
+}
+
+/* ---------- tiles ---------- */
+function setTile(id, val, unit, sub, warn) {
+  const el = $(id);
+  const v = el.querySelector('.val'), s = el.querySelector('.sub');
+  if (val === null) { v.className = 'val none'; v.textContent = '--'; }
+  else { v.className = 'val'; v.textContent = val; if (unit) { const u = document.createElement('small'); u.textContent = unit; v.appendChild(u); } }
+  s.textContent = sub;
+  s.className = 'sub' + (warn ? ' warn' : '');
+}
+
+function render(t) {
+  T = t;
+  const st = $('status');
+  if (t.simulator_mode) { st.className = 'pill sim'; st.textContent = 'SIMULATOR'; }
+  else if (t.hardware_connected) { st.className = 'pill online'; st.textContent = 'ONLINE'; }
+  else { st.className = 'pill offline'; st.textContent = 'OFFLINE'; }
+  $('clock').textContent = t.timestamp.slice(0, 5);
+
+  const soil = t.soil_moisture, dry = t.dry_cutoff, stop = t.stop_cutoff;
+  const [cap, col] = soilState(soil, dry, stop);
+  $('g-value').setAttribute('stroke-dasharray', `${soil === null ? 0 : Math.max(0, Math.min(100, soil))} 100`);
+  $('g-value').setAttribute('stroke', col);
+  $('g-num').textContent = soil === null ? '--' : `${Math.round(soil)}%`;
+  $('g-cap').textContent = cap; $('g-cap').setAttribute('fill', col);
+  placeTick($('g-dry'), dry); placeTick($('g-stop'), stop);
+  placeTick($('g-dry-halo'), dry); placeTick($('g-stop-halo'), stop);
+  const cropName = t.selected_crop === 'custom' ? 'Custom' : t.crop_name.split(' / ')[0];
+  $('crop-text').textContent = `${cropName} · ${Math.round(dry)}–${Math.round(stop)}%`;
+  $('crop-chip').querySelector('.ic').style.color = CROP_COLORS[t.selected_crop] || 'var(--muted)';
+
+  const live = t.hardware_connected && !t.simulator_mode;
+  const noSensor = live ? 'Sensor not responding' : 'Arduino offline';
+  const tWx = t.temperature_source === 'weather', hWx = t.humidity_source === 'weather';
+  setTile('t-temp', t.temperature_c === null ? null : (tWx ? Math.round(t.temperature_c) : t.temperature_c.toFixed(1)), '°C',
+          t.temperature_c === null ? noSensor : tWx ? 'Alappuzha weather station' : `${Math.round(t.temperature_f)} °F`,
+          t.temperature_c === null && live);
+  setTile('t-hum', t.humidity === null ? null : Math.round(t.humidity), '%',
+          t.humidity === null ? noSensor : hWx ? 'Alappuzha weather station' : 'Air humidity',
+          t.humidity === null && live);
+  const offSub = t.simulator_mode ? 'Live sensors only' : 'Arduino offline';
+  const ct = t.tank;
+  if (ct.level === null) setTile('t-tank', null, '', live ? 'No echo from sensor' : 'Arduino offline', live);
+  else setTile('t-tank', ct.level, '%', ct.alert ? 'FULL — release water' : `${ct.litres} of ${Math.round(ct.capacity_l)} L`, ct.alert);
+  $('tank-banner').hidden = !ct.alert;
+  $('tank-banner-text').textContent = ct.alert ? `Level ${ct.level ?? '--'}% since ${ct.alert_since}. Open the outlet and release the water, then reset.` : '';
+  document.title = ct.alert ? '⚠ Tank full · Smart Farm' : 'Smart Farm';
+
+  $('tank-now').textContent = ct.level === null ? '--' : `${ct.level} % · ${ct.litres} L`;
+  $('tank-dist').textContent = ct.cm === null ? (live ? 'No sensor reading' : 'Offline') : `${ct.cm} cm to water`;
+  const ae = document.activeElement;
+  if (ae !== $('tank-height')) $('tank-height').value = Math.round(ct.empty_cm);
+  if (ae !== $('tank-gap')) $('tank-gap').value = Math.round(ct.full_cm);
+  if (ae !== $('tank-area')) $('tank-area').value = Math.round(ct.area_cm2);
+  if (ae !== $('tank-alert')) $('tank-alert').value = Math.round(ct.alert_pct);
+  const farm = Object.assign({ fert_manual_max_min: t.fert_manual_max_min }, t.farm);
+  for (const k of ['field_area_m2', 'feed_litres', 'water_lpm', 'fert_lpm', 'fert_manual_max_min'])
+    if (ae !== $('farm-' + k)) $('farm-' + k).value = farm[k];
+  if (ae !== $('farm-stage')) $('farm-stage').value = farm.crop_stage;
+  renderFert(t);
+  for (const k of ['pump', 'fert']) if (ae !== $('dir-' + k)) $('dir-' + k).value = t.pump_reverse[k] ? 'REV' : 'FWD';
+  $('test-msg').textContent = t.pump_test ? `IN${t.pump_test.input} HIGH for ${t.pump_test.left} s: ` +
+    (t.pump_test.input <= 2 ? 'pump 1 (OUT1 / OUT2)' : 'pump 2 (OUT3 / OUT4)') + ' should run.' : '';
+  $('test-msg').style.color = 'var(--leaf)';
+  const wIcon = $('w-icon');
+  if (t.rain === null || t.rain === undefined) {
+    setTile('t-weather', null, '', offSub);
+    wIcon.innerHTML = '<use href="#i-sun"/>'; wIcon.style.color = 'var(--light)';
+  } else {
+    setTile('t-weather', t.rain ? 'Rain' : 'Dry', '', `Light ${t.light}%`);
+    wIcon.innerHTML = `<use href="#i-${t.rain ? 'rain' : 'sun'}"/>`;
+    wIcon.style.color = t.rain ? 'var(--water)' : 'var(--light)';
+  }
+
+  const pump = $('pump');
+  pump.className = 'btn' + (t.pump_on ? ' primary' : '');
+  pump.querySelector('span').textContent = t.pump_on ? 'PUMP 1 ON' : 'PUMP 1 OFF';
+  $('mode-auto').className = 'btn' + (t.pump_mode === 'AUTO' ? ' selected' : '');
+  $('mode-manual').className = 'btn' + (t.pump_mode === 'MANUAL' ? ' selected' : '');
+
+  document.querySelectorAll('.crop').forEach(b => b.setAttribute('aria-pressed', b.dataset.key === t.selected_crop));
+
+  $('dry-val').textContent = `${Math.round(dry)} %`;
+  $('stop-val').textContent = `${Math.round(stop)} %`;
+  $('band-fill').style.left = dry + '%'; $('band-fill').style.width = (stop - dry) + '%';
+  $('band-dry').style.left = dry + '%'; $('band-stop').style.left = stop + '%';
+  $('band-soil').hidden = soil === null;
+  if (soil !== null) $('band-soil').style.left = Math.max(0, Math.min(100, soil)) + '%';
+  $('band-now').textContent = soil === null ? '' : `soil now ${Math.round(soil)}%`;
+
+  const simBtn = $('sim-toggle');
+  simBtn.className = 'btn' + (t.simulator_mode ? ' primary' : '');
+  simBtn.querySelector('span').textContent = t.simulator_mode ? 'Simulator ON' : 'Simulator OFF';
+  syncSlider('sim-t', t.sim_temp, '°C'); syncSlider('sim-h', t.sim_humidity, '%'); syncSlider('sim-s', t.sim_soil_moisture, '%');
+  syncSlider('sim-k', t.sim_tank_level, '%');
+}
+
+async function refresh() {
+  try {
+    const res = await fetch('/api/telemetry');
+    render(await res.json());
+  } catch (e) {
+    const st = $('status'); st.className = 'pill offline'; st.textContent = 'NO LINK';
+  }
+}
+
+/* ---------- actions ---------- */
+function setMode(mode) { if (T && T.pump_mode !== mode) post('/api/pump/mode'); }
+
+function stepCutoff(which, delta) {
+  if (!T) return;
+  let dry = T.dry_cutoff, stop = T.stop_cutoff;
+  if (which === 'dry') dry = Math.max(5, Math.min(stop - 5, dry + delta));
+  else stop = Math.max(dry + 5, Math.min(95, stop + delta));
+  post('/api/settings/cutoffs', { dry_cutoff: dry, stop_cutoff: stop });
+}
+
+async function loadCrops() {
+  crops = await (await fetch('/api/crops')).json();
+  const box = $('crops'); box.innerHTML = '';
+  for (const [key, c] of Object.entries(crops)) {
+    const b = document.createElement('button');
+    b.className = 'crop'; b.dataset.key = key;
+    b.innerHTML = icon('sprout', 'ic', CROP_COLORS[key]) + '<div><b></b><span></span></div>';
+    b.querySelector('b').textContent = c.name.split(' / ')[0];
+    b.querySelector('span').textContent = key === 'custom' ? 'Your own cutoffs' : `${c.dry_cutoff}–${c.stop_cutoff}% moisture`;
+    b.onclick = () => post('/api/crops/select', { crop_key: key });
+    box.appendChild(b);
+  }
+  if (T) render(T);
+}
+
+/* simulator sliders: don't fight the user while dragging */
+const dragging = new Set();
+let simTimer = null;
+function syncSlider(id, value, unit) {
+  $(id + '-val').textContent = `${Math.round(value)} ${unit}`;
+  if (!dragging.has(id)) $(id).value = value;
+}
+['sim-t', 'sim-h', 'sim-s', 'sim-k'].forEach(id => {
+  const el = $(id), unit = id === 'sim-t' ? '°C' : '%';
+  el.addEventListener('pointerdown', () => dragging.add(id));
+  el.addEventListener('pointerup', () => setTimeout(() => dragging.delete(id), 600));
+  el.addEventListener('input', () => {
+    dragging.add(id);
+    $(id + '-val').textContent = `${el.value} ${unit}`;
+    clearTimeout(simTimer);
+    simTimer = setTimeout(() => {
+      post('/api/simulator/set', { temperature: +$('sim-t').value, humidity: +$('sim-h').value, soil_moisture: +$('sim-s').value,
+                                          tank_level: +$('sim-k').value });
+      setTimeout(() => dragging.delete(id), 600);
+    }, 200);
+  });
+});
+
+/* fertilizer pump + today's advice */
+const ADV_COLOR = { water: 'var(--water)', light: 'var(--water)', skip: 'var(--leaf)', apply: 'var(--fert)',
+                    postpone: 'var(--sun)', wait: 'var(--muted)', done: 'var(--leaf)' };
+const mmss = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+let A = null;  // latest advice
+$('fert-chips').innerHTML = [[0.5, '30 s'], [1, '1 min'], [2, '2 min'], [5, '5 min']]
+  .map(([m, l]) => `<button class="chip" data-m="${m}">${icon('play', 'ic sm', 'var(--fert)')} ${l}</button>`).join('');
+document.querySelectorAll('#fert-chips .chip').forEach(c => c.onclick = () => post('/api/fert/set', { on: true, minutes: +c.dataset.m }));
+function renderFert(t) {
+  const fp = $('fert-pump'), on = t.fert_pump_on;
+  fp.className = 'btn' + (on ? ' fert' : '');
+  fp.querySelector('span').textContent = on ? (t.fert_off_in !== null ? `Pump 2 ON · stops in ${mmss(t.fert_off_in)}` : 'Pump 2 ON') : 'Pump 2 OFF';
+  $('fert-today').textContent = `Today ${mmss(t.usage.fert_s)} · ${t.usage.fert_l} L`;
+  $('fert-msg').textContent = `Manual pump. Each run stops by itself (at most ${Math.round(t.fert_manual_max_min)} min).`;
+  const sugg = $('fert-sugg'), f = A && A.fert;
+  sugg.hidden = !(f && f.action === 'apply');
+  if (f && f.action === 'apply') { sugg.querySelector('span').textContent = `Run today's ${f.litres} L (${mmss(f.run_s)})`; sugg.disabled = on; }
+}
+async function loadAdvice() {
+  try {
+    A = await (await fetch('/api/advice')).json();
+    const w = A.water, f = A.fert;
+    $('adv-head').textContent = `${A.day} · ${A.crop_name.split(' / ')[0]} · ${A.stage_name}`;
+    $('adv-w-title').textContent = w.title; $('adv-w-title').style.color = ADV_COLOR[w.action];
+    $('adv-w-text').textContent = w.text + (w.note ? ' ' + w.note : '');
+    $('adv-f-title').textContent = f.title; $('adv-f-title').style.color = ADV_COLOR[f.action];
+    $('adv-f-text').textContent = f.text + (f.note ? ' ' + f.note : '');
+    $('adv-tips').innerHTML = '';
+    for (const tip of A.tips) { const li = document.createElement('li'); li.textContent = tip; $('adv-tips').appendChild(li); }
+    if (T) renderFert(T);
+  } catch (e) {}
+}
+function runSuggested() { if (A && A.fert.action === 'apply') post('/api/fert/set', { on: true, minutes: A.fert.minutes }); }
+async function saveFarm(e) {
+  e.preventDefault();
+  const body = { crop_stage: $('farm-stage').value };
+  for (const k of ['field_area_m2', 'feed_litres', 'water_lpm', 'fert_lpm', 'fert_manual_max_min']) body[k] = +$('farm-' + k).value;
+  await post('/api/settings/farm', body);
+  $('device-msg').textContent = 'Saved farm setup.'; $('device-msg').style.color = 'var(--leaf)';
+  document.activeElement.blur();
+  loadAdvice();
+}
+
+function setDir(pump, dir) { post('/api/settings/direction', { pump, reverse: dir === 'REV' }); }
+
+/* farm ai */
+let AI = null, aiTimer = null;
+const esc = t => String(t ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const KIND_COLOR = { water: 'var(--water)', fertilizer: 'var(--fert)', pest: 'var(--alert)', tank: 'var(--tank)', harvest: 'var(--sun)', general: 'var(--leaf)' };
+const PARAM_UNIT = { dry_cutoff: '%', stop_cutoff: '%', tank_alert_pct: '%', feed_litres: ' L', fert_manual_max_min: ' min', crop_stage: '' };
+function aiState(task, idle) {
+  const t = AI.tasks[task];
+  if (!AI.configured) return '<span style="color:var(--sun)">Add a Gemini API key in the Device tab below.</span>';
+  if (t.status === 'busy') return '<span class="busy">Thinking…</span>';
+  if (t.status === 'error' && !t.result) return `<span style="color:var(--alert)">${esc(t.error)}</span>`;
+  if (!t.result) return idle;
+  return null;
+}
+function renderAI() {
+  const b = AI.tasks.brief;
+  $('ai-meta').textContent = AI.configured ? `${AI.model}${b.time ? ' · ' + b.time : ''}` : 'Not set up';
+  $('ai-refresh').disabled = !AI.configured || b.status === 'busy';
+  $('ai-key-state').textContent = AI.configured ? `Saved ${AI.key_hint}` : 'Not set';
+  const msg = aiState('brief', '<span class="hint">Tap Refresh for today\'s brief.</span>');
+  if (msg) $('ai-brief').innerHTML = msg;
+  else {
+    const r = b.result;
+    $('ai-brief').innerHTML =
+      `<h2>${esc(r.headline)}</h2><p class="sum">${esc(r.summary)}</p>` +
+      `<div class="plan" style="margin:10px 0"><div><b style="color:var(--water)">Water:</b> ${esc(r.water)}</div>` +
+      `<div><b style="color:var(--fert)">Fertilizer:</b> ${esc(r.fertilizer)}</div></div>` +
+      `<div class="acts">${r.actions.map(a => `<div class="act"><b style="color:${KIND_COLOR[a.kind] || 'var(--leaf)'}">${esc(a.title)}<i>${esc(a.when)}</i></b>${esc(a.detail)}</div>`).join('')}</div>` +
+      (r.reminders.length ? `<p class="hint" style="margin:10px 0 0">${r.reminders.map(x => `<b>${esc(x.day)}:</b> ${esc(x.text)}`).join(' · ')}</p>` : '') +
+      r.warnings.map(w => `<p style="color:var(--alert);margin:6px 0 0;font-size:13px">⚠ ${esc(w)}</p>`).join('') +
+      (b.status === 'busy' ? '<p class="busy">Refreshing…</p>' : '');
+  }
+  const c = AI.tasks.crop, cm = aiState('crop', '<span class="hint">Type a crop name, or leave empty for the current crop.</span>');
+  if (cm) $('ai-crop-out').innerHTML = cm;
+  else { const r = c.result;
+    $('ai-crop-out').innerHTML = `<b>${esc(r.name)}</b>\nWater below ${Math.round(r.dry_cutoff)}% until ${Math.round(r.stop_cutoff)}%, Kc ${r.kc_early}/${r.kc_mid}/${r.kc_late}, feed every ${r.feed_days} days\n` +
+      `Season: ${esc(r.season)} · ${esc(r.water_need)}\nFeed: ${esc(r.feeding)}\nPests: ${esc(r.pests)}\nTip: ${esc(r.tips)}`; }
+  $('ai-crop-apply').hidden = !c.result || c.status === 'busy';
+  const p = AI.tasks.params, pm = aiState('params', '');
+  $('ai-params-out').innerHTML = pm ?? esc(p.result.summary) + (p.result.suggestions.length ? '' : ' No changes needed.');
+  $('ai-params-list').innerHTML = pm !== null ? '' : p.result.suggestions.map((s, i) =>
+    `<div class="sugg"><span><b>${esc(s.name)} → ${esc(s.value)}${PARAM_UNIT[s.key]}</b> ${esc(s.reason)}</span>` +
+    `<button class="btn${s.applied ? '' : ' primary'}" ${s.applied ? 'disabled' : ''} onclick="aiApply('param', ${i})">${s.applied ? 'Done' : 'Apply'}</button></div>`).join('');
+  const a = AI.tasks.ask, am = aiState('ask', '');
+  $('ai-ask-out').innerHTML = am ?? `<b>${esc(a.input)}</b>\n${esc(a.result.answer)}`;
+}
+async function loadAI() {
+  clearTimeout(aiTimer);
+  try { AI = await (await fetch('/api/ai/status')).json(); renderAI(); } catch (e) {}
+  const busy = AI && Object.values(AI.tasks).some(t => t.status === 'busy');
+  aiTimer = setTimeout(loadAI, busy ? 2000 : 60000);
+}
+async function aiRun(task, text) {
+  const res = await fetch('/api/ai/' + task, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                               body: JSON.stringify({ text: text ?? null }) });
+  AI = await res.json(); renderAI(); loadAI();
+}
+function aiCrop(e) { e.preventDefault(); aiRun('crop', $('ai-crop-in').value); }
+function aiAsk(e) { e.preventDefault(); if ($('ai-ask-in').value.trim()) aiRun('ask', $('ai-ask-in').value); }
+async function aiApply(what, index) {
+  const res = await fetch('/api/ai/apply/' + what, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                                     body: JSON.stringify({ index: index ?? 0 }) });
+  const data = await res.json();
+  if (!res.ok) alert(data.message); else { AI = data; renderAI(); }
+  refresh(); loadAdvice();
+}
+async function saveAIKey(e, remove) {
+  if (e) e.preventDefault();
+  const key = remove ? '' : $('ai-key').value.trim();
+  if (!remove && !key) return;
+  const res = await fetch('/api/ai/key', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key }) });
+  const data = await res.json();
+  $('ai-key').value = '';
+  $('ai-key-msg').textContent = res.ok ? (remove ? 'Farm AI key removed.' : 'Farm AI key saved. Getting today\'s brief…')
+                                       : `Not saved: ${data.message || data.detail || res.status}`;
+  $('ai-key-msg').style.color = res.ok ? 'var(--leaf)' : 'var(--alert)';
+  if (res.ok) { AI = data; renderAI(); loadAI(); }
+}
+function removeAIKey() { if (confirm('Remove the Farm AI key from the Pi?')) saveAIKey(null, true); }
+
+/* weather */
+const WX_COLOR = { sun: 'var(--light)', cloudsun: 'var(--light)', rain: 'var(--water)', storm: 'var(--sun)' };
+async function loadWeather() {
+  try {
+    const w = await (await fetch('/api/weather')).json();
+    if (!w.ok) { $('wx-label').textContent = `Alappuzha · ${w.error || 'no forecast yet'}`; return; }
+    const c = w.current;
+    $('wx-icon').innerHTML = `<use href="#i-${c.icon}"/>`; $('wx-icon').style.color = WX_COLOR[c.icon] || 'var(--muted)';
+    $('wx-temp').textContent = `${Math.round(c.temp)}°C`;
+    $('wx-label').textContent = `${c.label} · Alappuzha`;
+    $('wx-extra').textContent = `Feels ${Math.round(c.feels)}° · Humidity ${c.humidity}% · Wind ${Math.round(c.wind)} km/h · Updated ${w.updated}${w.stale ? ' (old)' : ''}`;
+    $('wx-days').innerHTML = w.daily.map((d, i) =>
+      `<div><b>${i ? d.day : 'Today'}</b>${icon(d.icon, 'ic', WX_COLOR[d.icon] || 'var(--muted)')}` +
+      `<span>${Math.round(d.max)}° / ${Math.round(d.min)}°</span><span class="rain">Rain ${d.rain_chance}%</span></div>`).join('');
+  } catch (e) {}
+}
+
+async function saveTank(e) {
+  e.preventDefault();
+  const res = await post('/api/tank/calibrate', { height_cm: +$('tank-height').value,
+                                                  full_gap_cm: +$('tank-gap').value, area_cm2: +$('tank-area').value });
+  await post('/api/settings/farm', { tank_alert_pct: +$('tank-alert').value });
+  $('tank-msg').textContent = res ? `Saved: height ${res.height_cm} cm, gap ${res.full_gap_cm} cm, area ${res.area_cm2} cm²` : 'Could not save';
+  $('tank-msg').style.color = res ? 'var(--leaf)' : 'var(--alert)';
+  document.activeElement.blur();
+}
+async function markTank(which) {
+  const res = await fetch('/api/tank/mark', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                              body: JSON.stringify({ which }) });
+  const data = await res.json();
+  $('tank-msg').textContent = res.ok ? `Saved current distance as ${which}.` : data.message;
+  $('tank-msg').style.color = res.ok ? 'var(--leaf)' : 'var(--alert)';
+  refresh();
+}
+
+/* wi-fi */
+async function scanWifi() {
+  const list = $('wifi-list');
+  $('wifi-msg').textContent = 'Scanning…'; $('wifi-msg').style.color = 'var(--muted)';
+  const data = await (await fetch('/api/wifi/scan')).json();
+  $('wifi-msg').textContent = '';
+  $('wifi-now').textContent = data.current.connected ? `${data.current.ssid} · ${data.current.signal}%` : 'Not connected';
+  $('wifi-now').style.color = data.current.connected ? 'var(--leaf)' : 'var(--alert)';
+  list.innerHTML = '';
+  if (!data.networks.length) { $('wifi-msg').textContent = 'No networks found'; return; }
+  for (const n of data.networks) {
+    const b = document.createElement('button');
+    b.className = 'net' + (n.active ? ' active' : '');
+    const strength = n.signal >= 60 ? 'var(--leaf)' : n.signal >= 30 ? 'var(--sun)' : 'var(--alert)';
+    const secured = n.security && n.security !== '--';
+    b.innerHTML = icon('wifi', 'ic', strength) + '<span class="name"></span>' +
+                  (secured ? icon('lock', 'ic sm', 'var(--muted)') : '') + '<span class="sig"></span>';
+    b.querySelector('.name').textContent = n.ssid;      // SSIDs are untrusted: text only
+    b.querySelector('.sig').textContent = `${n.signal}%`;
+    b.onclick = () => {
+      wifiTarget = n.ssid;
+      $('wifi-target').textContent = `Connect to ${n.ssid}`;
+      $('wifi-form').classList.add('open');
+      $('wifi-pass').value = ''; $('wifi-pass').focus();
+    };
+    list.appendChild(b);
+  }
+}
+async function connectWifi(e) {
+  e.preventDefault();
+  if (!wifiTarget) return;
+  $('wifi-msg').textContent = `Connecting to ${wifiTarget}…`; $('wifi-msg').style.color = 'var(--sun)';
+  const res = await post('/api/wifi/connect', { ssid: wifiTarget, password: $('wifi-pass').value });
+  const ok = res && res.success;
+  $('wifi-msg').textContent = ok ? `Connected to ${wifiTarget}` : `Failed: ${(res && res.message) || 'error'}`;
+  $('wifi-msg').style.color = ok ? 'var(--leaf)' : 'var(--alert)';
+  if (ok) { $('wifi-form').classList.remove('open'); scanWifi(); }
+}
+
+/* device */
+async function loadDevice() {
+  const d = await (await fetch('/api/system/diagnostics')).json();
+  const rows = [['wifi', 'Address', d.ip_address], ['thermo', 'CPU temp', d.cpu_temp], ['chip', 'Memory', d.ram_usage],
+                ['disk', 'Storage', d.disk_usage], ['clock', 'Uptime', d.uptime],
+                ['plug', 'Arduino', T && T.hardware_connected ? 'Connected' : 'Not connected']];
+  const box = $('facts'); box.innerHTML = '';
+  for (const [ic, k, v] of rows) {
+    box.insertAdjacentHTML('beforeend', icon(ic));
+    const s = document.createElement('span'); s.textContent = k; box.appendChild(s);
+    const b = document.createElement('b'); b.textContent = v ?? 'N/A'; box.appendChild(b);
+  }
+}
+async function restartApp() {
+  if (!confirm('Restart the dashboard app on the Pi?')) return;
+  await fetch('/api/system/restart-gui', { method: 'POST' });
+  $('device-msg').textContent = 'Restarting… the page will reconnect in a few seconds.';
+}
+async function rebootPi() {
+  if (!confirm('Reboot the Raspberry Pi? Irrigation keeps running on the Arduino.')) return;
+  await fetch('/api/system/reboot', { method: 'POST' });
+  $('device-msg').textContent = 'Rebooting… this takes about a minute.';
+}
+
+/* wiring */
+(function renderPins() {
+  const pins = [['sprout', 'var(--leaf)', 'Soil moisture sensor', 'A0'], ['rain', 'var(--water)', 'Rain sensor', 'A1'],
+                ['sun', 'var(--light)', 'Light sensor (LDR)', 'A2'], ['thermo', 'var(--sun)', 'DHT11 / DHT22 temp & humidity', 'D2'],
+                ['power', 'var(--water)', 'Pump 1 (water): motor driver IN1 / IN2', 'D5 / D7'], ['power', 'var(--fert)', 'Pump 2 (fertilizer): motor driver IN3 / IN4', 'D6 / D8'],
+                ['tank', 'var(--tank)', 'Rain tank ultrasonic TRIG / ECHO', 'D9 / D10'],
+                ['chip', 'var(--muted)', 'Status LED', 'D13']];
+  $('pins').innerHTML = pins.map(([ic, c, n, p]) => `${icon(ic, 'ic', c)}<span>${n}</span><b>${p}</b>`).join('');
+})();
+
+/* tabs */
+function openTab(name, scroll) {
+  document.querySelectorAll('.tab').forEach(t => t.setAttribute('aria-selected', t.dataset.tab === name));
+  document.querySelectorAll('.tabpanel').forEach(p => p.hidden = p.id !== 'p-' + name);
+  try { localStorage.setItem('tab', name); } catch (e) {}
+  if (name === 'wifi' && !$('wifi-list').children.length) scanWifi();
+  if (name === 'device') loadDevice();
+  if (scroll) $('settings').scrollIntoView({ behavior: 'smooth' });
+}
+document.querySelectorAll('.tab').forEach(t => t.onclick = () => openTab(t.dataset.tab));
+let startTab = 'crops';
+try { startTab = localStorage.getItem('tab') || 'crops'; } catch (e) {}
+openTab(startTab);
+
+loadCrops();
+refresh();
+loadWeather();
+loadAdvice();
+loadAI();
+setInterval(refresh, 1000);
+setInterval(loadWeather, 5 * 60 * 1000);
+setInterval(loadAdvice, 60 * 1000);
+</script>
+</body>
+</html>

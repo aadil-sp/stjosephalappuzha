@@ -6,13 +6,13 @@
   },
   "detection": {
     "pir_pin": 14,
-    "ultrasonic_trig_pin": 12,
-    "ultrasonic_echo_pin": 13,
-    "detection_threshold_meters": 5.0,
+    "ultrasonic_trig_pin": 9,
+    "ultrasonic_echo_pin": 10,
+    "detection_threshold_cm": 30,
     "motion_cooldown_seconds": 10
   },
   "deterrents": {
-    "ultrasonic_buzzer_pin": 25,
+    "buzzer_pin": 8,
     "ultrasonic_freq_khz_range": [20, 45],
     "strobe_light_pin": 26,
     "siren_relay_pin": 27,

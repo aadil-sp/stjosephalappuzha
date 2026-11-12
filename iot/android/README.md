@@ -12,11 +12,15 @@ the platform widgets only - no libraries.
 
 1. Send `release/SmartFarm.apk` to the phone (WhatsApp, Drive, USB...).
 2. Open it. Android asks to allow installing from that app - allow it, then Install.
-3. Open **Smart Farm** → **Settings**, enter the farm address and access key → **Save and connect**.
+3. Join the same Wi-Fi as the farm controller and open **Smart Farm**. It searches the
+   Wi-Fi for the controller by itself (or tap **Settings → Find farm on this Wi-Fi**).
+
+No setup is needed on the Pi for this: the app finds any controller answering on port
+8000 of the phone's Wi-Fi network (/24), and searches again if the address changes.
 
 ## Farm address and access key
 
-* **From anywhere:** the farm controller needs an internet address. Run once on the Pi:
+* **Away from the farm (optional):** the farm controller needs an internet address. Run once on the Pi:
   `bash setup_remote_access.sh <ngrok-authtoken> <static-domain>` (free ngrok account;
   the dashboard gives one free static domain like `calm-owl-123.ngrok-free.app`).
   The script prints the address and key to type into the app.

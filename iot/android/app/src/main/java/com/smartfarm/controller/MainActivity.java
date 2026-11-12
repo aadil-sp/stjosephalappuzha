@@ -56,8 +56,9 @@ public class MainActivity extends Activity {
 
     JSONObject tele, advice, aiStatus, crops;
     String lastError;
-    boolean teleBusy, resumed;
-    long adviceAt, aiAt, cropsAt;
+    boolean teleBusy, resumed, finding;
+    int failures;
+    long adviceAt, aiAt, cropsAt, findAt;
     int tab = TAB_HOME;
     double fertMinutes = 1.0;
     boolean settingsFilled;
@@ -85,6 +86,7 @@ public class MainActivity extends Activity {
     // settings
     EditText addressInput, keyInput;
     TextView connectResult;
+    Button findButton;
 
     final Runnable ticker = new Runnable() {
         @Override
@@ -124,6 +126,7 @@ public class MainActivity extends Activity {
         }
         showTab(api.base.isEmpty() ? TAB_SETTINGS : TAB_HOME);
         render();
+        if (api.base.isEmpty()) findFarm(false);
     }
 
     @Override
@@ -152,8 +155,12 @@ public class MainActivity extends Activity {
                 if (res != null) {
                     tele = res;
                     lastError = null;
+                    failures = 0;
                 } else {
                     lastError = err;
+                    // The Pi's Wi-Fi address can change after a router restart: look for it again
+                    if (++failures >= 3 && Api.isLocal(api.base)
+                            && System.currentTimeMillis() - findAt > 60_000) findFarm(true);
                 }
                 render();
             });
@@ -528,14 +535,19 @@ public class MainActivity extends Activity {
         LinearLayout page = pageBox();
         LinearLayout c = card();
         c.addView(text("Connect to the farm", 17, TEXT, true));
+        c.addView(text("Connect the phone to the same Wi-Fi as the farm controller, then tap Find farm.",
+                13, MUTED, false), topMargin(2));
+        findButton = button("Find farm on this Wi-Fi", GREEN, true);
+        findButton.setOnClickListener(v -> findFarm(false));
+        c.addView(findButton, topMargin(10));
         addressInput = input("farm address", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
         addressInput.setText(prefs.getString("address", ""));
         keyInput = input("XXXX-XXXX-XXXX", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
                 | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
         keyInput.setText(prefs.getString("key", ""));
-        c.addView(labelled("Farm address", addressInput), topMargin(10));
-        c.addView(labelled("Access key", keyInput), topMargin(8));
-        Button connect = button("Save and connect", GREEN, true);
+        c.addView(labelled("Farm address", addressInput), topMargin(12));
+        c.addView(labelled("Access key (only needed outside the farm Wi-Fi)", keyInput), topMargin(8));
+        Button connect = button("Save and connect", GREEN, false);
         connect.setOnClickListener(v -> connect());
         c.addView(connect, topMargin(12));
         connectResult = text("", 14, MUTED, false);
@@ -545,18 +557,51 @@ public class MainActivity extends Activity {
         LinearLayout help = card();
         help.addView(text("Where to find these", 17, TEXT, true));
         help.addView(text(
-                "• Farm address: the internet address of the farm controller, for example "
-                        + "something.ngrok-free.app. On the farm's own Wi-Fi you can also use the "
-                        + "address shown on the farm screen under Device → Web app.\n\n"
-                        + "• Access key: on the farm screen, open Device. It is shown as App key.\n\n"
-                        + "The app checks the farm every 3 seconds while it is open.",
+                "• Find farm fills in the address by itself. If it can't find it, type the address "
+                        + "shown on the farm screen under Device → Web app (for example 192.168.1.20).\n\n"
+                        + "• On the farm Wi-Fi no access key is needed. To use the app from somewhere "
+                        + "else, the controller needs an internet address; then enter the App key "
+                        + "shown on the farm screen under Device.\n\n"
+                        + "• If the farm's address changes, the app finds it again by itself.",
                 14, TEXT, false), topMargin(6));
         page.addView(help, gap());
 
-        TextView ver = text("Smart Farm app 1.0", 12, MUTED, false);
+        TextView ver = text("Smart Farm app 1.1", 12, MUTED, false);
         ver.setGravity(Gravity.CENTER);
         page.addView(ver, gap());
         return page;
+    }
+
+    /** Scans the Wi-Fi for the controller; quiet = background re-find after the address stopped answering. */
+    void findFarm(boolean quiet) {
+        if (finding) return;
+        finding = true;
+        findAt = System.currentTimeMillis();
+        if (!quiet) {
+            hideKeyboard();
+            findButton.setEnabled(false);
+            findButton.setText("Searching this Wi-Fi…");
+            connectResult.setTextColor(MUTED);
+            connectResult.setText("Looking for the farm controller (up to 30 s)…");
+        }
+        api.findFarm(prefs.getString("address", ""), addr -> {
+            finding = false;
+            findButton.setEnabled(true);
+            findButton.setText("Find farm on this Wi-Fi");
+            if (addr == null) {
+                if (!quiet) {
+                    connectResult.setTextColor(ALERT);
+                    connectResult.setText(Api.localPrefixes().isEmpty()
+                            ? "This phone is not on a Wi-Fi network. Turn on Wi-Fi and join the farm's network."
+                            : "No farm found on this Wi-Fi. Check the controller is on and on the same "
+                            + "network, or type its address below.");
+                }
+                return;
+            }
+            if (quiet && addr.equals(api.base)) return;
+            addressInput.setText(addr);
+            connect();
+        });
     }
 
     void connect() {
@@ -586,9 +631,10 @@ public class MainActivity extends Activity {
             cropsAt = adviceAt = aiAt = 0;
             settingsFilled = false;
             connectResult.setTextColor(GREEN);
-            connectResult.setText("Connected ✓");
+            connectResult.setText("Connected to " + addr.replaceFirst("^https?://", "") + " ✓");
+            failures = 0;
             render();
-            handler.postDelayed(() -> showTab(TAB_HOME), 700);
+            if (tab == TAB_SETTINGS) handler.postDelayed(() -> showTab(TAB_HOME), 700);
         });
     }
 
